@@ -31,8 +31,23 @@ export default function App() {
   const [autoTrade, setAutoTrade] = useState(false);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
   
+  const [tradeConfig, setTradeConfig] = useState({
+    tradeSize: Number(localStorage.getItem('tradeSize')) || 1,
+    stopLossPct: Number(localStorage.getItem('stopLossPct')) || 10,
+    takeProfitPct: Number(localStorage.getItem('takeProfitPct')) || 10,
+    maxPositions: Number(localStorage.getItem('maxPositions')) || 3,
+  });
+
+  const updateTradeConfig = (key: string, value: number) => {
+    const newConfig = { ...tradeConfig, [key]: value };
+    setTradeConfig(newConfig);
+    localStorage.setItem(key, value.toString());
+  };
+  
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [chatLog, setChatLog] = useState<{role: 'ai' | 'user', text: string}[]>([]);
+  const [selectedPositionForModal, setSelectedPositionForModal] = useState<any | null>(null);
+  const [positionCurrentPrice, setPositionCurrentPrice] = useState<number>(0);
 
   const getAiSuggestions = async () => {
     // Collect some data to pass to AI
@@ -63,15 +78,32 @@ export default function App() {
         getAiSuggestions();
       }
 
-      if (autoTrade && newSentiment.label === 'Bullish' && positions.length < 3) {
-        await executeTrade(selectedSymbol, 'BUY', 1, newPrice, newPrice * 0.9, newPrice * 1.1);
+      const alreadyHolds = positions.some(p => p.symbol === selectedSymbol);
+      if (autoTrade && !alreadyHolds && positions.length < tradeConfig.maxPositions) {
+        let shouldTrade = newSentiment.label === 'Bullish';
+        
+        if (isAgentRunning) {
+          // If agent is running, only auto-trade if the stock is actively suggested by AI
+          shouldTrade = shouldTrade && suggestions.includes(selectedSymbol);
+        }
+
+        if (shouldTrade) {
+          await executeTrade(
+            selectedSymbol, 
+            'BUY', 
+            tradeConfig.tradeSize, 
+            newPrice, 
+            newPrice * (1 - tradeConfig.stopLossPct / 100), 
+            newPrice * (1 + tradeConfig.takeProfitPct / 100)
+          );
+        }
       }
     };
     
     updateData();
     const interval = setInterval(updateData, 5000);
     return () => clearInterval(interval);
-  }, [selectedSymbol, autoTrade, positions.length]);
+  }, [selectedSymbol, autoTrade, positions, isAgentRunning, suggestions, tradeConfig]);
 
   useEffect(() => {
     const fetchPortfolio = async () => {
@@ -109,6 +141,12 @@ export default function App() {
     const results = await runBacktest(backtestParams.symbol, backtestParams.start, backtestParams.end);
     setBacktestResults(results);
     setIsTesting(false);
+  };
+
+  const handlePositionClick = async (pos: any) => {
+    setSelectedPositionForModal(pos);
+    const currentPrice = pos.symbol === selectedSymbol ? price : await fetchStockPrice(pos.symbol);
+    setPositionCurrentPrice(currentPrice);
   };
 
   return (
@@ -160,7 +198,84 @@ export default function App() {
                 </div>
               </>
             )}
-            <button onClick={() => setIsSettingsOpen(false)} className="glass-card w-full py-2 bg-blue-600">Close</button>
+
+            <div className="border-t border-slate-700 my-4 pt-4">
+              <h3 className="text-sm font-bold mb-3 text-slate-300">Auto-Trade Configuration</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Trade Size (shares)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={tradeConfig.tradeSize}
+                    onChange={(e) => updateTradeConfig('tradeSize', Number(e.target.value))}
+                    className="glass-card w-full p-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Max Positions</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={tradeConfig.maxPositions}
+                    onChange={(e) => updateTradeConfig('maxPositions', Number(e.target.value))}
+                    className="glass-card w-full p-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Stop Loss (%)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={tradeConfig.stopLossPct}
+                    onChange={(e) => updateTradeConfig('stopLossPct', Number(e.target.value))}
+                    className="glass-card w-full p-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Take Profit (%)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    value={tradeConfig.takeProfitPct}
+                    onChange={(e) => updateTradeConfig('takeProfitPct', Number(e.target.value))}
+                    className="glass-card w-full p-2 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <button onClick={() => setIsSettingsOpen(false)} className="glass-card w-full py-2 bg-blue-600 mt-4">Close</button>
+          </div>
+        </div>
+      )}
+
+      {selectedPositionForModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="glass-card p-6 w-96 relative">
+             <button onClick={() => setSelectedPositionForModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white">✕</button>
+             <h2 className="text-xl font-bold mb-4">{selectedPositionForModal.symbol} Position Details</h2>
+             <div className="space-y-3">
+               <div className="flex justify-between"><span className="text-slate-400">Entry Date:</span> <span>Just now</span></div>
+               <div className="flex justify-between"><span className="text-slate-400">Shares:</span> <span>{selectedPositionForModal.shares}</span></div>
+               <div className="flex justify-between"><span className="text-slate-400">Avg Entry Price:</span> <span>${selectedPositionForModal.entryPrice?.toFixed(2) || '0.00'}</span></div>
+               <div className="flex justify-between"><span className="text-slate-400">Current Price:</span> <span>${positionCurrentPrice?.toFixed(2) || '0.00'}</span></div>
+               <div className="flex justify-between"><span className="text-slate-400">Stop Loss:</span> <span className="text-red-400">${selectedPositionForModal.stopLoss?.toFixed(2) || '0.00'}</span></div>
+               <div className="flex justify-between"><span className="text-slate-400">Take Profit:</span> <span className="text-green-400">${selectedPositionForModal.takeProfit?.toFixed(2) || '0.00'}</span></div>
+               
+               <div className="pt-3 mt-3 border-t border-slate-700">
+                  <div className="flex justify-between font-bold text-lg">
+                    <span>Unrealized P/L:</span>
+                    <span className={(positionCurrentPrice - selectedPositionForModal.entryPrice) >= 0 ? "text-green-400" : "text-red-400"}>
+                      ${((positionCurrentPrice - selectedPositionForModal.entryPrice) * selectedPositionForModal.shares).toFixed(2)}
+                      {' '}({(((positionCurrentPrice - selectedPositionForModal.entryPrice) / selectedPositionForModal.entryPrice) * 100).toFixed(2)}%)
+                    </span>
+                  </div>
+               </div>
+             </div>
+             <button onClick={() => setSelectedPositionForModal(null)} className="mt-6 w-full py-2 bg-slate-800 hover:bg-slate-700 rounded text-center">Close Details</button>
           </div>
         </div>
       )}
@@ -267,8 +382,8 @@ export default function App() {
         <main className="glass-card p-6">
           <h2 className="text-xl font-bold mb-6">Portfolio Details</h2>
           <div className="grid grid-cols-3 gap-4 mb-8">
-            <div className="glass-card p-4"><h3 className="text-slate-400 text-sm">Cash</h3><p className="text-2xl font-mono">${portfolio.balance.toFixed(2)}</p></div>
-            <div className="glass-card p-4"><h3 className="text-slate-400 text-sm">Total Value</h3><p className="text-2xl font-mono">${portfolio.totalValue.toFixed(2)}</p></div>
+            <div className="glass-card p-4"><h3 className="text-slate-400 text-sm">Cash</h3><p className="text-2xl font-mono">${(portfolio?.balance || 0).toFixed(2)}</p></div>
+            <div className="glass-card p-4"><h3 className="text-slate-400 text-sm">Total Value</h3><p className="text-2xl font-mono">${(portfolio?.totalValue || 0).toFixed(2)}</p></div>
             <div className="glass-card p-4"><h3 className="text-slate-400 text-sm">Perf vs Benchmark</h3><p className="text-2xl font-mono text-green-400">+2.4%</p></div>
           </div>
           <table className="w-full text-left">
@@ -284,12 +399,12 @@ export default function App() {
             </thead>
             <tbody>
               {positions.map(pos => (
-                <tr key={pos.id} className="border-b border-white/5">
+                <tr key={pos.id} className="border-b border-white/5 cursor-pointer hover:bg-white/5 transition-colors" onClick={() => handlePositionClick(pos)}>
                   <td className="py-3 font-bold">{pos.symbol}</td>
                   <td className="py-3">{pos.shares}</td>
-                  <td className="py-3">${pos.entryPrice.toFixed(2)}</td>
-                  <td className="py-3">${pos.stopLoss.toFixed(2)}</td>
-                  <td className="py-3">${pos.takeProfit.toFixed(2)}</td>
+                  <td className="py-3">${(pos.entryPrice || 0).toFixed(2)}</td>
+                  <td className="py-3">${(pos.stopLoss || 0).toFixed(2)}</td>
+                  <td className="py-3">${(pos.takeProfit || 0).toFixed(2)}</td>
                   <td className="py-3">${ (pos.shares * (pos.symbol === selectedSymbol ? (price || 0) : (pos.entryPrice || 0))).toFixed(2) }</td>
                 </tr>
               ))}
@@ -312,7 +427,7 @@ export default function App() {
                   <td className="py-3 font-bold">{trade.symbol}</td>
                   <td className={`py-3 ${trade.type === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>{trade.type}</td>
                   <td className="py-3">{trade.shares}</td>
-                  <td className="py-3">${trade.price.toFixed(2)}</td>
+                  <td className="py-3">${(trade.price || 0).toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
