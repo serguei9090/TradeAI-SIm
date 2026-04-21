@@ -138,4 +138,40 @@ router.get('/ai-logs', (req, res) => {
   });
 });
 
+// AI Chat
+router.post('/ai-chat', async (req, res) => {
+  const { message } = req.body;
+  if (!message) return res.status(400).json({ error: 'Message is required' });
+
+  try {
+    const settings: any = await new Promise((resolve) => {
+      db.get("SELECT * FROM settings WHERE id = 'default'", (err, row) => resolve(row || {}));
+    });
+
+    const targetUrl = settings.customApiUrl || process.env.AI_API_BASE || 'http://localhost:1234/v1';
+    const targetModel = settings.customApiModel || process.env.AI_MODEL || 'local-model';
+    const aiApiKey = settings.apiKey || process.env.AI_API_KEY || "no-key-needed";
+
+    const aiRes = await fetch(`${targetUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${aiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: targetModel,
+        messages: [{ role: "user", content: message }],
+      }),
+    });
+
+    const aiData = await aiRes.json();
+    const reply = aiData.choices?.[0]?.message?.content?.trim() || "No response from AI.";
+
+    res.json({ reply });
+  } catch (err: any) {
+    console.error("AI Chat Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
