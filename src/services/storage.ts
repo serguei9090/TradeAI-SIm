@@ -1,15 +1,35 @@
-// Mocking Firestore functions with localStorage
-export const getDoc = async (path: string): Promise<any> => {
-  const data = localStorage.getItem(path);
-  return data ? JSON.parse(data) : null;
+export const getPortfolio = async (): Promise<any> => {
+  const res = await fetch('/api/db/portfolio');
+  return res.json();
 };
 
-export const updateDoc = async (path: string, data: any): Promise<void> => {
-  localStorage.setItem(path, JSON.stringify(data));
+export const getPositions = async (): Promise<any[]> => {
+  const res = await fetch('/api/db/positions');
+  return res.json();
 };
 
-// Simplified wrappers for common usages in App.tsx
-export const getDocs = async (collectionPath: string): Promise<any[]> => {
-  const data = localStorage.getItem(collectionPath);
-  return data ? JSON.parse(data) : [];
+export const getTradeHistory = async (): Promise<any[]> => {
+  const res = await fetch('/api/db/trade-history');
+  return res.json();
+};
+
+export const getApprovedStocks = async (): Promise<any[]> => {
+  const res = await fetch('/api/db/approved-stocks');
+  return res.json();
+};
+
+export const approveStock = async (symbol: string): Promise<any> => {
+  const res = await fetch('/api/db/approved-stocks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ symbol })
+  });
+  return res.json();
+};
+
+export const removeApprovedStock = async (symbol: string): Promise<any> => {
+  const res = await fetch(`/api/db/approved-stocks/${symbol}`, {
+    method: 'DELETE'
+  });
+  return res.json();
 };

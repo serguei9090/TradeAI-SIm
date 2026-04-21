@@ -1,5 +1,3 @@
-import { getDoc, updateDoc, setDoc, addDoc, getDocs, collection, deleteDoc } from './storage';
-
 export const executeTrade = async (
   symbol: string,
   type: 'BUY' | 'SELL',
@@ -8,21 +6,16 @@ export const executeTrade = async (
   stopLoss: number,
   takeProfit: number
 ) => {
-  // Simulate auth check by assuming a default user
-  const uid = 'default';
-  const portfolio = await getDoc(`portfolios/${uid}`) || { balance: 10000 };
+  const res = await fetch('/api/db/trade', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ symbol, type, shares, price, stopLoss, takeProfit })
+  });
 
-  if (type === 'BUY') {
-    const cost = shares * price;
-    if (portfolio.balance < cost) return;
-    
-    await updateDoc(`portfolios/${uid}`, { balance: portfolio.balance - cost });
-    // Using a list for positions in localStorage
-    const positions = await getDocs('positions') || [];
-    positions.push({ symbol, shares, entryPrice: price, stopLoss, takeProfit });
-    await updateDoc('positions', positions);
-  } else {
-    // Simplified sell logic (placeholder)
-    await updateDoc(`portfolios/${uid}`, { balance: portfolio.balance + (shares * price) });
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || 'Trade failed');
   }
+
+  return res.json();
 };

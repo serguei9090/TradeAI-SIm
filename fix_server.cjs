@@ -1,4 +1,6 @@
-import express from "express";
+const fs = require('fs');
+
+let serverCode = `import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -21,10 +23,10 @@ async function startServer() {
     const { apiUrl, apiKey } = req.body;
     if (!apiUrl) return res.status(400).json({ error: "apiUrl is required" });
     try {
-      const response = await fetch(`${apiUrl}/models`, {
-        headers: { "Authorization": `Bearer ${apiKey || "no-key"}` }
+      const response = await fetch(\`\${apiUrl}/models\`, {
+        headers: { "Authorization": \`Bearer \${apiKey || "no-key"}\` }
       });
-      if (!response.ok) throw new Error(`Failed to fetch: ${response.statusText}`);
+      if (!response.ok) throw new Error(\`Failed to fetch: \${response.statusText}\`);
       const data = await response.json();
       res.json(data);
     } catch (error) {
@@ -35,7 +37,7 @@ async function startServer() {
   // API route for AI proxy
   app.post("/api/ai-proxy", async (req, res) => {
     const { prompt, provider, apiUrl, model } = req.body;
-    
+
     // Choose endpoint/model based on provider
     const targetUrl = provider === 'custom' && apiUrl ? apiUrl : process.env.AI_API_BASE;
     const targetModel = provider === 'custom' && model ? model : process.env.AI_MODEL;
@@ -46,11 +48,11 @@ async function startServer() {
     }
 
     try {
-      const response = await fetch(`${targetUrl}/chat/completions`, {
+      const response = await fetch(\`\${targetUrl}/chat/completions\`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
+          "Authorization": \`Bearer \${apiKey}\`,
         },
         body: JSON.stringify({
           model: targetModel,
@@ -75,9 +77,9 @@ async function startServer() {
     }
 
     try {
-      const response = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${apiKey}`);
+      const response = await fetch(\`https://finnhub.io/api/v1/quote?symbol=\${symbol}&token=\${apiKey}\`);
       const data = await response.json();
-      
+
       if (data.c) {
         res.json({ price: data.c });
       } else {
@@ -106,8 +108,11 @@ async function startServer() {
   startEngine();
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(\`Server running on http://localhost:\${PORT}\`);
   });
 }
 
 startServer();
+`;
+
+fs.writeFileSync('server.ts', serverCode);
