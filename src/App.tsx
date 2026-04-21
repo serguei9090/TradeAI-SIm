@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Square, Settings, RefreshCw, Plus, Trash2 } from 'lucide-react';
+import { Play, Square, Settings, RefreshCw, Plus, Trash2, MessageCircle, X, Send } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { getPortfolio, getPositions, getTradeHistory, getApprovedStocks, approveStock, removeApprovedStock } from './services/storage';
+import { getPortfolio, getPositions, getTradeHistory, getApprovedStocks, approveStock, removeApprovedStock, getSettings, updateSettings, getAiLogs } from './services/storage';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'portfolio'>('dashboard');
@@ -9,9 +9,9 @@ export default function App() {
   // Settings State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [modelProvider, setModelProvider] = useState<'gemini' | 'custom'>('custom');
-  const [customApiUrl, setCustomApiUrl] = useState(localStorage.getItem('customApiUrl') || 'http://localhost:1234/v1');
-  const [customApiModel, setCustomApiModel] = useState(localStorage.getItem('customApiModel') || 'local-model');
-  const [apiKey, setApiKey] = useState(localStorage.getItem('apiKey') || '');
+  const [customApiUrl, setCustomApiUrl] = useState('http://localhost:1234/v1');
+  const [customApiModel, setCustomApiModel] = useState('local-model');
+  const [apiKey, setApiKey] = useState('');
   const [availableModels, setAvailableModels] = useState<any[]>([]);
   
   // Data State
@@ -21,16 +21,20 @@ export default function App() {
   const [approvedStocks, setApprovedStocks] = useState<any[]>([]);
   
   // Trade Config State
-  const [tradeSize, setTradeSize] = useState(Number(localStorage.getItem('tradeSize')) || 1);
-  const [stopLossPct, setStopLossPct] = useState(Number(localStorage.getItem('stopLossPct')) || 10);
-  const [takeProfitPct, setTakeProfitPct] = useState(Number(localStorage.getItem('takeProfitPct')) || 10);
-  const [maxPositions, setMaxPositions] = useState(Number(localStorage.getItem('maxPositions')) || 3);
+  const [tradeSize, setTradeSize] = useState(1);
+  const [stopLossPct, setStopLossPct] = useState(10);
+  const [takeProfitPct, setTakeProfitPct] = useState(10);
+  const [maxPositions, setMaxPositions] = useState(3);
   
   // Engine State
   const [isEngineRunning, setIsEngineRunning] = useState(false);
+  const [aiLogs, setAiLogs] = useState<any[]>([]);
 
   // Suggestion State (Mock for now, would typically be an AI generation)
   const [suggestionInput, setSuggestionInput] = useState('');
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<{role: 'user'|'ai', content: string}[]>([]);
+  const [chatInput, setChatInput] = useState('');
 
   const refreshData = async () => {
     const port = await getPortfolio();
@@ -41,6 +45,22 @@ export default function App() {
     setTradeHistory(hist);
     const approved = await getApprovedStocks();
     setApprovedStocks(approved);
+    const logs = await getAiLogs();
+    setAiLogs(logs);
+
+    // Fetch settings on first load
+    if (customApiUrl === 'http://localhost:1234/v1' && customApiModel === 'local-model' && !isSettingsOpen) {
+        const settings = await getSettings();
+        if (settings.customApiUrl) {
+            setCustomApiUrl(settings.customApiUrl);
+            setCustomApiModel(settings.customApiModel);
+            setApiKey(settings.apiKey);
+            setTradeSize(settings.tradeSize);
+            setStopLossPct(settings.stopLossPct);
+            setTakeProfitPct(settings.takeProfitPct);
+            setMaxPositions(settings.maxPositions);
+        }
+    }
 
     // Check engine status
     const engineRes = await fetch('/api/db/engine/status');
@@ -72,14 +92,8 @@ export default function App() {
     }
   };
 
-  const saveSettings = () => {
-    localStorage.setItem('customApiUrl', customApiUrl);
-    localStorage.setItem('customApiModel', customApiModel);
-    localStorage.setItem('apiKey', apiKey);
-    localStorage.setItem('tradeSize', tradeSize.toString());
-    localStorage.setItem('stopLossPct', stopLossPct.toString());
-    localStorage.setItem('takeProfitPct', takeProfitPct.toString());
-    localStorage.setItem('maxPositions', maxPositions.toString());
+  const saveSettings = async () => {
+    await updateSettings({ customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions });
     setIsSettingsOpen(false);
   };
 
@@ -95,6 +109,30 @@ export default function App() {
   const handleRemoveApprove = async (symbol: string) => {
     await removeApprovedStock(symbol);
     refreshData();
+  };
+
+
+  const handleChatSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+
+    const newMessages = [...chatMessages, { role: 'user' as const, content: chatInput }];
+    setChatMessages(newMessages);
+    setChatInput('');
+
+    try {
+      const res = await fetch('/api/ai-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: chatInput })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setChatMessages([...newMessages, { role: 'ai', content: data.reply }]);
+      }
+    } catch(e) {
+      setChatMessages([...newMessages, { role: 'ai', content: "Error connecting to AI backend." }]);
+    }
   };
 
   const toggleEngine = async () => {
@@ -190,9 +228,18 @@ export default function App() {
                 <button onClick={refreshData} className="text-[#848e9c] hover:text-[#fcd535] transition-colors"><RefreshCw size={16} /></button>
               </div>
               <div className="flex-1 bg-[#0b0e11] rounded border border-[#2b3139] p-4 font-mono text-sm overflow-y-auto">
-                <p className="text-[#848e9c] mb-2">// The AI's real-time thoughts will appear here when the engine is running.</p>
-                <p className="text-[#848e9c]">Waiting for engine tick...</p>
-                {/* In a real scenario, we'd fetch a log table from the DB */}
+                {aiLogs.length === 0 && (
+                  <>
+                    <p className="text-[#848e9c] mb-2">// The AI's real-time thoughts will appear here when the engine is running.</p>
+                    <p className="text-[#848e9c]">Waiting for engine tick...</p>
+                  </>
+                )}
+                {Array.isArray(aiLogs) && aiLogs.map(log => (
+                  <div key={log.id} className="mb-2 pb-2 border-b border-[#2b3139]/50">
+                    <span className="text-[#848e9c] text-xs">[{new Date(log.timestamp).toLocaleTimeString()}] [{log.symbol}]</span>
+                    <p className="text-white mt-1">{log.log}</p>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -361,6 +408,51 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Floating Chat Button */}
+      <button
+        onClick={() => setIsChatOpen(true)}
+        className="fixed bottom-6 right-6 bg-[#fcd535] text-black p-4 rounded-full shadow-lg hover:bg-[#f0c929] transition-transform hover:scale-105"
+      >
+        <MessageCircle size={24} />
+      </button>
+
+      {/* Chat Sidebar */}
+      {isChatOpen && (
+        <div className="fixed top-0 right-0 h-full w-80 bg-[#1e2329] border-l border-[#2b3139] shadow-2xl flex flex-col z-50 animate-slide-in">
+          <div className="p-4 border-b border-[#2b3139] flex justify-between items-center">
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2"><MessageCircle size={18}/> AI Assistant</h2>
+            <button onClick={() => setIsChatOpen(false)} className="text-[#848e9c] hover:text-white"><X size={20} /></button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {chatMessages.length === 0 && (
+              <p className="text-[#848e9c] text-sm text-center mt-10">Ask the AI which stocks to add to the bot!</p>
+            )}
+            {chatMessages.map((msg, i) => (
+              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] rounded-lg p-3 text-sm ${msg.role === 'user' ? 'bg-[#fcd535] text-black' : 'bg-[#2b3139] text-white'}`}>
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <form onSubmit={handleChatSubmit} className="p-4 border-t border-[#2b3139] flex gap-2">
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder="Ask about stocks..."
+              className="input-field flex-1 text-sm py-2"
+            />
+            <button type="submit" className="bg-[#2b3139] hover:bg-[#474d57] text-white p-2 rounded transition-colors">
+              <Send size={16} />
+            </button>
+          </form>
+        </div>
+      )}
+
     </div>
   );
 }

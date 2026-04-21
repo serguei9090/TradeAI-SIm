@@ -33,3 +33,22 @@ export const removeApprovedStock = async (symbol: string): Promise<any> => {
   });
   return res.json();
 };
+
+export const getSettings = async (): Promise<any> => {
+  const res = await fetch('/api/db/settings');
+  return res.json();
+};
+
+export const updateSettings = async (settings: any): Promise<any> => {
+  const res = await fetch('/api/db/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings)
+  });
+  return res.json();
+};
+
+export const getAiLogs = async (): Promise<any[]> => {
+  const res = await fetch('/api/db/ai-logs');
+  return res.json();
+};

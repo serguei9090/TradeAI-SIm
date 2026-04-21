@@ -12,7 +12,6 @@ const db = new sqlite3.Database(dbPath, (err) => {
   } else {
     console.log('Connected to the SQLite database.');
 
-    // Create tables
     db.serialize(() => {
       // Portfolios Table
       db.run(`CREATE TABLE IF NOT EXISTS portfolios (
@@ -21,7 +20,6 @@ const db = new sqlite3.Database(dbPath, (err) => {
         totalValue REAL NOT NULL
       )`);
 
-      // Initialize default portfolio if empty
       db.get("SELECT count(*) as count FROM portfolios", (err, row: any) => {
         if (!err && row.count === 0) {
           db.run("INSERT INTO portfolios (id, balance, totalValue) VALUES ('default', 10000.0, 10000.0)");
@@ -52,6 +50,34 @@ const db = new sqlite3.Database(dbPath, (err) => {
       db.run(`CREATE TABLE IF NOT EXISTS approved_stocks (
         symbol TEXT PRIMARY KEY,
         approvedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`);
+
+      // Settings Table
+      db.run(`CREATE TABLE IF NOT EXISTS settings (
+        id TEXT PRIMARY KEY,
+        customApiUrl TEXT,
+        customApiModel TEXT,
+        apiKey TEXT,
+        tradeSize INTEGER,
+        stopLossPct REAL,
+        takeProfitPct REAL,
+        maxPositions INTEGER
+      )`);
+
+      db.get("SELECT count(*) as count FROM settings", (err, row: any) => {
+        if (!err && row.count === 0) {
+          db.run(`INSERT INTO settings
+            (id, customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions)
+            VALUES ('default', 'http://localhost:1234/v1', 'local-model', '', 1, 10.0, 10.0, 3)`);
+        }
+      });
+
+      // AI Logs Table
+      db.run(`CREATE TABLE IF NOT EXISTS ai_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        log TEXT
       )`);
     });
   }
