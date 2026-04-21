@@ -13,10 +13,10 @@ jobs:
   auto-merge:
     runs-on: ubuntu-latest
     # Check for the correct Jules bot username
-    if: github.event.pull_request.user.login == 'google-labs-jules'
+    if: if: contains(github.event.pull_request.body, 'PR created automatically by Jules')
     steps:
       - name: Auto-merge PR
-        run: gh pr merge --auto --merge "$PR_URL"
+        run: gh pr merge "${{ github.event.pull_request.html_url }}" --auto --squash
         env:
           PR_URL: ${{github.event.pull_request.html_url}}
           GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
