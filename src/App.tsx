@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Play, Square, Settings, RefreshCw, Plus, Trash2, MessageCircle, X, Send } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { getPortfolio, getPositions, getTradeHistory, getApprovedStocks, approveStock, removeApprovedStock, getSettings, updateSettings, getAiLogs } from './services/storage';
+import { getPortfolio, getPositions, getTradeHistory, getApprovedStocks, approveStock, removeApprovedStock, getSettings, updateSettings, getAiLogs, addFunds } from './services/storage';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'portfolio'>('dashboard');
@@ -25,6 +25,7 @@ export default function App() {
   const [stopLossPct, setStopLossPct] = useState(10);
   const [takeProfitPct, setTakeProfitPct] = useState(10);
   const [maxPositions, setMaxPositions] = useState(3);
+  const [addFundsAmount, setAddFundsAmount] = useState<number>(10000);
   
   // Engine State
   const [isEngineRunning, setIsEngineRunning] = useState(false);
@@ -89,6 +90,14 @@ export default function App() {
       }
     } catch (e) {
       console.error("Failed to fetch models", e);
+    }
+  };
+
+  const handleAddFunds = async () => {
+    if (addFundsAmount > 0) {
+      await addFunds(addFundsAmount);
+      refreshData();
+      alert(`Successfully added ${addFundsAmount} to portfolio!`);
     }
   };
 
@@ -399,6 +408,20 @@ export default function App() {
                   <input type="number" min="1" value={takeProfitPct} onChange={(e) => setTakeProfitPct(Number(e.target.value))} className="input-field w-full" />
                 </div>
               </div>
+            </div>
+
+            <hr className="border-[#2b3139] my-4" />
+            <h3 className="text-md font-semibold text-white mb-2">Fund Management</h3>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min="1"
+                value={addFundsAmount}
+                onChange={(e) => setAddFundsAmount(Number(e.target.value))}
+                className="input-field w-full"
+                placeholder="Amount to add"
+              />
+              <button onClick={handleAddFunds} className="btn-secondary whitespace-nowrap">Add Funds</button>
             </div>
 
             <div className="flex justify-end gap-3 mt-8">

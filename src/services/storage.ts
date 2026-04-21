@@ -48,6 +48,15 @@ export const updateSettings = async (settings: any): Promise<any> => {
   return res.json();
 };
 
+export const addFunds = async (amount: number): Promise<any> => {
+  const res = await fetch('/api/db/portfolio/add-funds', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount })
+  });
+  return res.json();
+};
+
 export const getAiLogs = async (): Promise<any[]> => {
   const res = await fetch('/api/db/ai-logs');
   return res.json();

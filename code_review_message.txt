@@ -1,0 +1,5 @@
+Added a "Fund Management" section to the settings modal to allow users to add virtual funds.
+Updated `backend_routes.ts` with a `POST /portfolio/add-funds` endpoint.
+Updated `src/services/storage.ts` with `addFunds` wrapper.
+Updated `src/App.tsx` with the UI and `addFundsAmount` state.
+Added an integration test for the new route in `backend_routes.test.ts`.

@@ -41,6 +41,13 @@ app.use(express.json());
 app.use('/api', dbRoutes);
 
 describe('Backend Routes', () => {
+  it('POST /api/portfolio/add-funds should update balance and return success', async () => {
+    const res = await request(app).post('/api/portfolio/add-funds').send({ amount: 5000 });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.amount).toBe(5000);
+  });
+
   it('GET /api/settings should return mocked settings', async () => {
     const res = await request(app).get('/api/settings');
     expect(res.status).toBe(200);
