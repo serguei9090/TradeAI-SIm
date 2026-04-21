@@ -107,4 +107,35 @@ router.post('/engine/stop', (req, res) => {
   res.json({ running: false });
 });
 
+
+// Settings
+router.get('/settings', (req, res) => {
+  db.get("SELECT * FROM settings WHERE id = 'default'", (err, row: any) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(row || {});
+  });
+});
+
+router.post('/settings', (req, res) => {
+  const { customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions } = req.body;
+
+  db.run(`UPDATE settings SET
+    customApiUrl = ?, customApiModel = ?, apiKey = ?, tradeSize = ?, stopLossPct = ?, takeProfitPct = ?, maxPositions = ?
+    WHERE id = 'default'`,
+    [customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+// AI Logs
+router.get('/ai-logs', (req, res) => {
+  db.all("SELECT * FROM ai_logs ORDER BY timestamp DESC LIMIT 50", (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
 export default router;

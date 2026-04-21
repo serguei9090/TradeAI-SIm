@@ -88,6 +88,44 @@ async function startServer() {
     }
   });
 
+
+  // AI Chat Route
+  app.post("/api/ai-chat", async (req, res) => {
+    const { message } = req.body;
+
+    // Fetch settings directly from DB here to make sure we use latest
+    const db = require('./db').default;
+    db.get("SELECT * FROM settings WHERE id = 'default'", async (err, settings) => {
+      if (err) return res.status(500).json({ error: "DB Error" });
+
+      const targetUrl = settings?.customApiUrl || process.env.AI_API_BASE || 'http://localhost:1234/v1';
+      const targetModel = settings?.customApiModel || process.env.AI_MODEL || 'local-model';
+      const apiKey = settings?.apiKey || process.env.AI_API_KEY || "no-key-needed";
+
+      const prompt = `You are a helpful AI trading assistant. The user will ask you about the market or what stocks to add. Be concise, professional, and give direct stock symbol recommendations if asked. User: ${message}`;
+
+      try {
+        const response = await fetch(`${targetUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: targetModel,
+            messages: [{ role: "user", content: prompt }],
+          }),
+        });
+
+        const data = await response.json();
+        const reply = data.choices?.[0]?.message?.content?.trim() || "I couldn't generate a response.";
+        res.json({ reply });
+      } catch (error) {
+        res.status(500).json({ error: "Failed to connect to AI" });
+      }
+    });
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
