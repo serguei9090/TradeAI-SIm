@@ -1,455 +1,365 @@
-import { useState, useEffect } from 'react';
-import { Play, Square } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Play, Square, Settings, RefreshCw, Plus, Trash2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { fetchStockPrice, fetchSentiment, runBacktest } from './services/data';
-import { getTradingSuggestions } from './services/aiSuggestion';
-import { executeTrade } from './services/trading';
-import { getDoc as getLocalDoc, getDocs as getLocalDocs } from './services/storage';
+import { getPortfolio, getPositions, getTradeHistory, getApprovedStocks, approveStock, removeApprovedStock } from './services/storage';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'portfolio' | 'backtest'>('dashboard');
-  const [modelProvider, setModelProvider] = useState<'gemini' | 'custom'>('gemini');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'portfolio'>('dashboard');
+
+  // Settings State
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [modelProvider, setModelProvider] = useState<'gemini' | 'custom'>('custom');
   const [customApiUrl, setCustomApiUrl] = useState(localStorage.getItem('customApiUrl') || 'http://localhost:1234/v1');
   const [customApiModel, setCustomApiModel] = useState(localStorage.getItem('customApiModel') || 'local-model');
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [selectedSymbol, setSelectedSymbol] = useState('NVDA');
-  const [price, setPrice] = useState<number>(0);
-  const [sentiment, setSentiment] = useState<{ score: number, label: string }>({ score: 50, label: 'Neutral' });
-  const [history, setHistory] = useState<string[]>(['NVDA']);
-  const [inputValue, setInputValue] = useState('');
+  const [apiKey, setApiKey] = useState(localStorage.getItem('apiKey') || '');
+  const [availableModels, setAvailableModels] = useState<any[]>([]);
   
-  const [chartData, setChartData] = useState<{time: string, price: number}[]>([]);
-  const [timeframe, setTimeframe] = useState('1D');
-  
-  const [portfolio, setPortfolio] = useState<{balance: number, totalValue: number}>({balance: 10000, totalValue: 0});
+  // Data State
+  const [portfolio, setPortfolio] = useState<{balance: number, totalValue: number}>({balance: 0, totalValue: 0});
   const [positions, setPositions] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
-
-  const [backtestParams, setBacktestParams] = useState({ symbol: 'NVDA', start: '2026-01-01', end: '2026-02-01' });
-  const [backtestResults, setBacktestResults] = useState<any>(null);
-  const [isTesting, setIsTesting] = useState(false);
-  const [autoTrade, setAutoTrade] = useState(false);
-  const [isAgentRunning, setIsAgentRunning] = useState(false);
+  const [approvedStocks, setApprovedStocks] = useState<any[]>([]);
   
-  const [tradeConfig, setTradeConfig] = useState({
-    tradeSize: Number(localStorage.getItem('tradeSize')) || 1,
-    stopLossPct: Number(localStorage.getItem('stopLossPct')) || 10,
-    takeProfitPct: Number(localStorage.getItem('takeProfitPct')) || 10,
-    maxPositions: Number(localStorage.getItem('maxPositions')) || 3,
-  });
-
-  const updateTradeConfig = (key: string, value: number) => {
-    const newConfig = { ...tradeConfig, [key]: value };
-    setTradeConfig(newConfig);
-    localStorage.setItem(key, value.toString());
-  };
+  // Trade Config State
+  const [tradeSize, setTradeSize] = useState(Number(localStorage.getItem('tradeSize')) || 1);
+  const [stopLossPct, setStopLossPct] = useState(Number(localStorage.getItem('stopLossPct')) || 10);
+  const [takeProfitPct, setTakeProfitPct] = useState(Number(localStorage.getItem('takeProfitPct')) || 10);
+  const [maxPositions, setMaxPositions] = useState(Number(localStorage.getItem('maxPositions')) || 3);
   
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [chatLog, setChatLog] = useState<{role: 'ai' | 'user', text: string}[]>([]);
-  const [selectedPositionForModal, setSelectedPositionForModal] = useState<any | null>(null);
-  const [positionCurrentPrice, setPositionCurrentPrice] = useState<number>(0);
+  // Engine State
+  const [isEngineRunning, setIsEngineRunning] = useState(false);
 
-  const getAiSuggestions = async () => {
-    // Collect some data to pass to AI
-    const data = { selectedSymbol, price, sentiment };
-    const newSuggestions = await getTradingSuggestions(data);
-    setSuggestions(newSuggestions);
-    setChatLog(prev => [...prev, {role: 'ai', text: `Suggested stocks: ${newSuggestions.join(', ')}. Would you like to add them to Auto-Trade?`}]);
-  };
+  // Suggestion State (Mock for now, would typically be an AI generation)
+  const [suggestionInput, setSuggestionInput] = useState('');
 
-  const addSuggestionToTrading = async (symbol: string) => {
-    // Logic to add to a tracking list (implied: just updates autoTrade settings)
-    setSelectedSymbol(symbol);
-    setAutoTrade(true);
-    setChatLog(prev => [...prev, {role: 'user', text: `Adding ${symbol} to auto-trade.`}]);
-  };
+  const refreshData = async () => {
+    const port = await getPortfolio();
+    setPortfolio(port);
+    const pos = await getPositions();
+    setPositions(pos);
+    const hist = await getTradeHistory();
+    setTradeHistory(hist);
+    const approved = await getApprovedStocks();
+    setApprovedStocks(approved);
 
-  useEffect(() => {
-    const updateData = async () => {
-      const [newPrice, newSentiment] = await Promise.all([
-        fetchStockPrice(selectedSymbol),
-        fetchSentiment(selectedSymbol)
-      ]);
-      setPrice(newPrice);
-      setSentiment(newSentiment);
-      setChartData(prev => [...prev.slice(-19), {time: new Date().toLocaleTimeString().split(':').slice(0, 2).join(':'), price: newPrice}]);
-      
-      if (isAgentRunning) {
-        getAiSuggestions();
-      }
-
-      const alreadyHolds = positions.some(p => p.symbol === selectedSymbol);
-      if (autoTrade && !alreadyHolds && positions.length < tradeConfig.maxPositions) {
-        let shouldTrade = newSentiment.label === 'Bullish';
-        
-        if (isAgentRunning) {
-          // If agent is running, only auto-trade if the stock is actively suggested by AI
-          shouldTrade = shouldTrade && suggestions.includes(selectedSymbol);
-        }
-
-        if (shouldTrade) {
-          await executeTrade(
-            selectedSymbol, 
-            'BUY', 
-            tradeConfig.tradeSize, 
-            newPrice, 
-            newPrice * (1 - tradeConfig.stopLossPct / 100), 
-            newPrice * (1 + tradeConfig.takeProfitPct / 100)
-          );
-        }
-      }
-    };
-    
-    updateData();
-    const interval = setInterval(updateData, 5000);
-    return () => clearInterval(interval);
-  }, [selectedSymbol, autoTrade, positions, isAgentRunning, suggestions, tradeConfig]);
-
-  useEffect(() => {
-    const fetchPortfolio = async () => {
-      try {
-        const portData = await getLocalDoc('portfolios/default');
-        if (portData) setPortfolio(portData);
-        
-        const posData = await getLocalDocs('positions');
-        setPositions(posData);
-        
-        const histData = await getLocalDocs('history');
-        setTradeHistory(histData);
-      } catch (e) {
-        console.error("Error loading local data", e);
-      }
-    };
-    fetchPortfolio();
-  }, []);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (inputValue) {
-      const symbol = inputValue.toUpperCase();
-      setSelectedSymbol(symbol);
-      if (!history.includes(symbol)) {
-        setHistory(prev => [symbol, ...prev].slice(0, 5));
-      }
-      setInputValue('');
+    // Check engine status
+    const engineRes = await fetch('/api/db/engine/status');
+    if (engineRes.ok) {
+      const data = await engineRes.json();
+      setIsEngineRunning(data.running);
     }
   };
 
-  const handleBacktest = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsTesting(true);
-    const results = await runBacktest(backtestParams.symbol, backtestParams.start, backtestParams.end);
-    setBacktestResults(results);
-    setIsTesting(false);
+  useEffect(() => {
+    refreshData();
+    const interval = setInterval(refreshData, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchModels = async () => {
+    try {
+      const res = await fetch('/api/fetch-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiUrl: customApiUrl, apiKey })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableModels(data.data || []);
+      }
+    } catch (e) {
+      console.error("Failed to fetch models", e);
+    }
   };
 
-  const handlePositionClick = async (pos: any) => {
-    setSelectedPositionForModal(pos);
-    const currentPrice = pos.symbol === selectedSymbol ? price : await fetchStockPrice(pos.symbol);
-    setPositionCurrentPrice(currentPrice);
+  const saveSettings = () => {
+    localStorage.setItem('customApiUrl', customApiUrl);
+    localStorage.setItem('customApiModel', customApiModel);
+    localStorage.setItem('apiKey', apiKey);
+    localStorage.setItem('tradeSize', tradeSize.toString());
+    localStorage.setItem('stopLossPct', stopLossPct.toString());
+    localStorage.setItem('takeProfitPct', takeProfitPct.toString());
+    localStorage.setItem('maxPositions', maxPositions.toString());
+    setIsSettingsOpen(false);
+  };
+
+  const handleApprove = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (suggestionInput) {
+      await approveStock(suggestionInput.toUpperCase());
+      setSuggestionInput('');
+      refreshData();
+    }
+  };
+
+  const handleRemoveApprove = async (symbol: string) => {
+    await removeApprovedStock(symbol);
+    refreshData();
+  };
+
+  const toggleEngine = async () => {
+    const endpoint = isEngineRunning ? '/api/db/engine/stop' : '/api/db/engine/start';
+    await fetch(endpoint, { method: 'POST' });
+    setIsEngineRunning(!isEngineRunning);
   };
 
   return (
-    <div className="min-h-screen gradient-bg p-6 text-[#e2e8f0]">
-      {isSettingsOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="glass-card p-6 w-96">
-            <h2 className="text-xl font-bold mb-4">Settings</h2>
-            <div className="mb-4">
-              <label className="block text-sm font-medium mb-2">Model Provider</label>
-              <select 
-                value={modelProvider} 
-                onChange={(e) => {
-                  const val = e.target.value as 'gemini' | 'custom';
-                  setModelProvider(val);
-                  localStorage.setItem('modelProvider', val);
-                }}
-                className="glass-card w-full p-2"
-              >
-                <option value="gemini">Gemini</option>
-                <option value="custom">Local / Custom API</option>
-              </select>
-            </div>
-            {modelProvider === 'custom' && (
-              <>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium mb-2">API Base URL</label>
-                  <input
-                    type="text"
-                    value={customApiUrl}
-                    onChange={(e) => {
-                      setCustomApiUrl(e.target.value);
-                      localStorage.setItem('customApiUrl', e.target.value);
-                    }}
-                    className="glass-card w-full p-2"
-                  />
-                </div>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium mb-2">Model Name</label>
-                  <input
-                    type="text"
-                    value={customApiModel}
-                    onChange={(e) => {
-                      setCustomApiModel(e.target.value);
-                      localStorage.setItem('customApiModel', e.target.value);
-                    }}
-                    className="glass-card w-full p-2"
-                  />
-                </div>
-              </>
-            )}
-
-            <div className="border-t border-slate-700 my-4 pt-4">
-              <h3 className="text-sm font-bold mb-3 text-slate-300">Auto-Trade Configuration</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium mb-1">Trade Size (shares)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={tradeConfig.tradeSize}
-                    onChange={(e) => updateTradeConfig('tradeSize', Number(e.target.value))}
-                    className="glass-card w-full p-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1">Max Positions</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={tradeConfig.maxPositions}
-                    onChange={(e) => updateTradeConfig('maxPositions', Number(e.target.value))}
-                    className="glass-card w-full p-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1">Stop Loss (%)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="100"
-                    value={tradeConfig.stopLossPct}
-                    onChange={(e) => updateTradeConfig('stopLossPct', Number(e.target.value))}
-                    className="glass-card w-full p-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1">Take Profit (%)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="1000"
-                    value={tradeConfig.takeProfitPct}
-                    onChange={(e) => updateTradeConfig('takeProfitPct', Number(e.target.value))}
-                    className="glass-card w-full p-2 text-sm"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <button onClick={() => setIsSettingsOpen(false)} className="glass-card w-full py-2 bg-blue-600 mt-4">Close</button>
+    <div className="min-h-screen bg-[#0b0e11] text-[#eaecef] font-sans selection:bg-[#fcd535] selection:text-black">
+      {/* Top Navbar */}
+      <nav className="flex items-center justify-between px-6 py-4 bg-[#1e2329] border-b border-[#2b3139]">
+        <div className="flex items-center gap-6">
+          <h1 className="text-[#fcd535] text-xl font-bold tracking-tight">TradeAI</h1>
+          <div className="flex gap-4">
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={`text-sm font-medium pb-1 border-b-2 transition-colors ${activeTab === 'dashboard' ? 'text-[#fcd535] border-[#fcd535]' : 'text-[#848e9c] border-transparent hover:text-white'}`}
+            >
+              Trading Bot
+            </button>
+            <button
+              onClick={() => setActiveTab('portfolio')}
+              className={`text-sm font-medium pb-1 border-b-2 transition-colors ${activeTab === 'portfolio' ? 'text-[#fcd535] border-[#fcd535]' : 'text-[#848e9c] border-transparent hover:text-white'}`}
+            >
+              Wallet / Orders
+            </button>
           </div>
         </div>
-      )}
-
-      {selectedPositionForModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="glass-card p-6 w-96 relative">
-             <button onClick={() => setSelectedPositionForModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white">✕</button>
-             <h2 className="text-xl font-bold mb-4">{selectedPositionForModal.symbol} Position Details</h2>
-             <div className="space-y-3">
-               <div className="flex justify-between"><span className="text-slate-400">Entry Date:</span> <span>Just now</span></div>
-               <div className="flex justify-between"><span className="text-slate-400">Shares:</span> <span>{selectedPositionForModal.shares}</span></div>
-               <div className="flex justify-between"><span className="text-slate-400">Avg Entry Price:</span> <span>${selectedPositionForModal.entryPrice?.toFixed(2) || '0.00'}</span></div>
-               <div className="flex justify-between"><span className="text-slate-400">Current Price:</span> <span>${positionCurrentPrice?.toFixed(2) || '0.00'}</span></div>
-               <div className="flex justify-between"><span className="text-slate-400">Stop Loss:</span> <span className="text-red-400">${selectedPositionForModal.stopLoss?.toFixed(2) || '0.00'}</span></div>
-               <div className="flex justify-between"><span className="text-slate-400">Take Profit:</span> <span className="text-green-400">${selectedPositionForModal.takeProfit?.toFixed(2) || '0.00'}</span></div>
-               
-               <div className="pt-3 mt-3 border-t border-slate-700">
-                  <div className="flex justify-between font-bold text-lg">
-                    <span>Unrealized P/L:</span>
-                    <span className={(positionCurrentPrice - selectedPositionForModal.entryPrice) >= 0 ? "text-green-400" : "text-red-400"}>
-                      ${((positionCurrentPrice - selectedPositionForModal.entryPrice) * selectedPositionForModal.shares).toFixed(2)}
-                      {' '}({(((positionCurrentPrice - selectedPositionForModal.entryPrice) / selectedPositionForModal.entryPrice) * 100).toFixed(2)}%)
-                    </span>
-                  </div>
-               </div>
-             </div>
-             <button onClick={() => setSelectedPositionForModal(null)} className="mt-6 w-full py-2 bg-slate-800 hover:bg-slate-700 rounded text-center">Close Details</button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 mr-4">
+            <span className="text-sm text-[#848e9c]">Engine Status:</span>
+            <span className={`h-2.5 w-2.5 rounded-full ${isEngineRunning ? 'bg-[#0ecb81]' : 'bg-[#f6465d]'}`}></span>
+            <span className={`text-sm font-medium ${isEngineRunning ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
+              {isEngineRunning ? 'Running' : 'Stopped'}
+            </span>
           </div>
+          <button
+            onClick={toggleEngine}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded text-sm font-semibold transition-colors ${isEngineRunning ? 'bg-[#f6465d] hover:bg-[#c9394c] text-white' : 'bg-[#0ecb81] hover:bg-[#0b9c63] text-white'}`}
+          >
+            {isEngineRunning ? <Square size={16} /> : <Play size={16} />}
+            {isEngineRunning ? 'Stop Bot' : 'Start Bot'}
+          </button>
+          <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-[#848e9c] hover:text-white rounded hover:bg-[#2b3139] transition-colors">
+            <Settings size={20} />
+          </button>
         </div>
-      )}
-      
-        <nav className="mb-8 p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center"></div>
-            <h1 className="text-xl font-bold tracking-tight text-white">TradeAI Sim</h1>
-          </div>
-          <div className="flex gap-2 items-center">
-            <button onClick={() => setIsSettingsOpen(true)} className="px-3 py-1.5 text-sm rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200">Settings</button>
-            <label className="flex items-center gap-2 cursor-pointer px-3 py-1.5 text-sm rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200">
-              <input type="checkbox" checked={autoTrade} onChange={e => setAutoTrade(e.target.checked)} />
-              <span>Auto-Trade</span>
-            </label>
-            <form onSubmit={handleSearch} className="flex gap-2">
-              <input
-                type="text"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                placeholder="Ticker..."
-                className="px-3 py-1.5 text-sm rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-              <button type="submit" className="px-3 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-500 text-white">Search</button>
-            </form>
-            <div className="h-6 w-px bg-slate-700 mx-2"></div>
-            <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-1.5 text-sm rounded-lg ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>Dashboard</button>
-            <button onClick={() => setActiveTab('portfolio')} className={`px-4 py-1.5 text-sm rounded-lg ${activeTab === 'portfolio' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>Portfolio</button>
-            <button onClick={() => setActiveTab('backtest')} className={`px-4 py-1.5 text-sm rounded-lg ${activeTab === 'backtest' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>Backtest</button>
-          </div>
-        </nav>
+      </nav>
 
-      {activeTab === 'dashboard' ? (
-        <main className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="glass-card p-6">
-            <h2 className="text-lg font-medium text-slate-400">Search History</h2>
-            <div className="flex flex-wrap gap-2 mt-4">
-              {history.map(sym => (
-                <button key={sym} onClick={() => setSelectedSymbol(sym)} className={`px-3 py-1 text-xs rounded-full ${sym === selectedSymbol ? 'bg-blue-600' : 'bg-white/10'}`}>
-                  {sym}
+      {/* Main Content */}
+      <div className="p-6 max-w-7xl mx-auto">
+        {activeTab === 'dashboard' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            {/* Approved Stocks Panel */}
+            <div className="panel lg:col-span-1">
+              <h2 className="text-lg font-semibold mb-4 text-white">Approved Trading Pairs</h2>
+              <p className="text-sm text-[#848e9c] mb-4">The bot will autonomously evaluate and trade these pairs when running.</p>
+
+              <form onSubmit={handleApprove} className="flex gap-2 mb-6">
+                <input
+                  type="text"
+                  value={suggestionInput}
+                  onChange={(e) => setSuggestionInput(e.target.value)}
+                  placeholder="e.g. BTC, AAPL"
+                  className="input-field flex-1 uppercase"
+                />
+                <button type="submit" className="btn-secondary flex items-center justify-center">
+                  <Plus size={16} />
                 </button>
-              ))}
-            </div>
-          </div>
-          <div className="glass-card p-6 col-span-1 md:col-span-2">
-            <div className="flex justify-between mb-4">
-              <h2 className="text-lg font-medium text-slate-400">{selectedSymbol} Price Chart</h2>
-              <div className="flex gap-2">
-                {['1D', '5D', '1M', '1Y'].map(tf => (
-                  <button key={tf} onClick={() => setTimeframe(tf)} className={`px-2 py-0.5 text-xs rounded ${timeframe === tf ? 'bg-blue-600' : 'bg-white/10'}`}>
-                    {tf}
-                  </button>
+              </form>
+
+              <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                {approvedStocks.length === 0 && (
+                  <p className="text-sm text-[#848e9c] text-center py-4">No approved stocks yet. Add one above.</p>
+                )}
+                {approvedStocks.map(stock => (
+                  <div key={stock.symbol} className="flex justify-between items-center p-3 bg-[#2b3139] rounded border border-[#2b3139] hover:border-[#474d57] transition-colors">
+                    <span className="font-bold text-white">{stock.symbol}</span>
+                    <button onClick={() => handleRemoveApprove(stock.symbol)} className="text-[#848e9c] hover:text-[#f6465d] transition-colors">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
-                  <XAxis dataKey="time" stroke="#64748b" />
-                  <YAxis stroke="#64748b" domain={['auto', 'auto']} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '0.5rem', color: '#f8fafc' }}
-                    itemStyle={{ color: '#3b82f6' }}
-                    formatter={(value: number) => [`$${value.toFixed(2)}`, 'Price']}
-                    labelStyle={{ color: '#94a3b8', marginBottom: '0.25rem' }}
+
+            {/* AI Log / Status Panel */}
+            <div className="panel lg:col-span-2 flex flex-col h-[600px]">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-semibold text-white">AI Reasoning Log</h2>
+                <button onClick={refreshData} className="text-[#848e9c] hover:text-[#fcd535] transition-colors"><RefreshCw size={16} /></button>
+              </div>
+              <div className="flex-1 bg-[#0b0e11] rounded border border-[#2b3139] p-4 font-mono text-sm overflow-y-auto">
+                <p className="text-[#848e9c] mb-2">// The AI's real-time thoughts will appear here when the engine is running.</p>
+                <p className="text-[#848e9c]">Waiting for engine tick...</p>
+                {/* In a real scenario, we'd fetch a log table from the DB */}
+              </div>
+            </div>
+
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* Portfolio Overview */}
+            <div className="panel">
+              <h2 className="text-lg font-semibold mb-4 text-white">Estimated Balance</h2>
+              <div className="flex gap-12">
+                <div>
+                  <p className="text-sm text-[#848e9c]">Fiat and Spot Balance</p>
+                  <p className="text-3xl font-bold text-white mt-1">${portfolio.balance?.toFixed(2)}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Positions */}
+            <div className="panel">
+              <h2 className="text-lg font-semibold mb-4 text-white">Open Positions</h2>
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr>
+                    <th className="table-header">Pair</th>
+                    <th className="table-header">Size</th>
+                    <th className="table-header">Entry Price</th>
+                    <th className="table-header">Stop Loss</th>
+                    <th className="table-header">Take Profit</th>
+                    <th className="table-header text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {positions.length === 0 && (
+                    <tr><td colSpan={6} className="table-cell text-center text-[#848e9c]">No open positions</td></tr>
+                  )}
+                  {positions.map(pos => (
+                    <tr key={pos.id} className="border-b border-[#2b3139] hover:bg-[#2b3139] transition-colors">
+                      <td className="table-cell font-bold text-white">{pos.symbol}</td>
+                      <td className="table-cell">{pos.shares}</td>
+                      <td className="table-cell">${pos.entryPrice?.toFixed(2)}</td>
+                      <td className="table-cell text-[#f6465d]">${pos.stopLoss?.toFixed(2)}</td>
+                      <td className="table-cell text-[#0ecb81]">${pos.takeProfit?.toFixed(2)}</td>
+                      <td className="table-cell text-right">
+                        {/* A real app would have a manual close button here */}
+                        <button className="text-xs bg-[#2b3139] hover:bg-[#f6465d] text-white px-2 py-1 rounded transition-colors">Close</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Trade History */}
+            <div className="panel">
+              <h2 className="text-lg font-semibold mb-4 text-white">Order History</h2>
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr>
+                    <th className="table-header">Time</th>
+                    <th className="table-header">Pair</th>
+                    <th className="table-header">Type</th>
+                    <th className="table-header">Executed</th>
+                    <th className="table-header">Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tradeHistory.length === 0 && (
+                    <tr><td colSpan={5} className="table-cell text-center text-[#848e9c]">No trade history</td></tr>
+                  )}
+                  {tradeHistory.slice(0, 10).map(trade => (
+                    <tr key={trade.id} className="border-b border-[#2b3139] hover:bg-[#2b3139] transition-colors">
+                      <td className="table-cell">{new Date(trade.timestamp).toLocaleString()}</td>
+                      <td className="table-cell font-bold text-white">{trade.symbol}</td>
+                      <td className={`table-cell font-semibold ${trade.type === 'BUY' ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>{trade.type}</td>
+                      <td className="table-cell">{trade.shares}</td>
+                      <td className="table-cell">${trade.price?.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Settings Modal */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+          <div className="bg-[#1e2329] border border-[#2b3139] rounded-xl p-6 w-full max-w-md shadow-2xl">
+            <h2 className="text-xl font-bold mb-6 text-white">AI Model Settings</h2>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-[#848e9c] mb-1">API Base URL</label>
+                <input
+                  type="text"
+                  value={customApiUrl}
+                  onChange={(e) => setCustomApiUrl(e.target.value)}
+                  className="input-field w-full"
+                  placeholder="http://localhost:1234/v1"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-[#848e9c] mb-1">API Key (Optional for Local)</label>
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  className="input-field w-full"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={fetchModels} className="btn-secondary w-full">Fetch Models</button>
+              </div>
+
+              <div>
+                <label className="block text-sm text-[#848e9c] mb-1">Model ID</label>
+                {availableModels.length > 0 ? (
+                  <select
+                    value={customApiModel}
+                    onChange={(e) => setCustomApiModel(e.target.value)}
+                    className="input-field w-full appearance-none"
+                  >
+                    {availableModels.map(m => (
+                      <option key={m.id} value={m.id}>{m.id}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={customApiModel}
+                    onChange={(e) => setCustomApiModel(e.target.value)}
+                    className="input-field w-full"
                   />
-                  <Line type="monotone" dataKey="price" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-          <div className="glass-card p-6">
-            <h2 className="text-lg font-medium text-slate-400">Market Sentiment</h2>
-            <p className={`text-2xl font-bold ${sentiment.label === 'Bullish' ? 'text-green-400' : sentiment.label === 'Bearish' ? 'text-red-400' : 'text-slate-400'}`}>
-              {sentiment.label} ({sentiment.score})
-            </p>
-          </div>
-          <div className="glass-card p-6 col-span-1 md:col-span-3">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium text-slate-400">AI Trading Agent</h2>
-              <button 
-                onClick={() => setIsAgentRunning(!isAgentRunning)} 
-                className={`px-4 py-2 rounded-lg text-sm font-medium ${isAgentRunning ? 'bg-red-900/50 text-red-200' : 'bg-blue-900/50 text-blue-200'}`}
-              >
-                {isAgentRunning ? 'Stop Agent' : 'Start Agent'}
-              </button>
-            </div>
-            
-            <div className="h-40 overflow-y-auto mb-4 p-4 bg-slate-950 rounded-lg space-y-2 border border-slate-800">
-              {chatLog.length === 0 && <p className="text-slate-600 italic">Agent is idle. Click "Start Agent" to begin.</p>}
-              {chatLog.map((log, i) => <p key={i} className={log.role === 'ai' ? 'text-blue-400' : 'text-slate-300'}>[{log.role.toUpperCase()}]: {log.text}</p>)}
+                )}
+              </div>
+
+              <hr className="border-[#2b3139] my-4" />
+              <h3 className="text-md font-semibold text-white mb-2">Trading Configuration</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-[#848e9c] mb-1">Trade Size (Shares)</label>
+                  <input type="number" min="1" value={tradeSize} onChange={(e) => setTradeSize(Number(e.target.value))} className="input-field w-full" />
+                </div>
+                <div>
+                  <label className="block text-sm text-[#848e9c] mb-1">Max Positions</label>
+                  <input type="number" min="1" max="10" value={maxPositions} onChange={(e) => setMaxPositions(Number(e.target.value))} className="input-field w-full" />
+                </div>
+                <div>
+                  <label className="block text-sm text-[#848e9c] mb-1">Stop Loss (%)</label>
+                  <input type="number" min="1" value={stopLossPct} onChange={(e) => setStopLossPct(Number(e.target.value))} className="input-field w-full" />
+                </div>
+                <div>
+                  <label className="block text-sm text-[#848e9c] mb-1">Take Profit (%)</label>
+                  <input type="number" min="1" value={takeProfitPct} onChange={(e) => setTakeProfitPct(Number(e.target.value))} className="input-field w-full" />
+                </div>
+              </div>
             </div>
 
-            <div className="flex gap-2">
-              {suggestions.map(sym => (
-                <button key={sym} onClick={() => addSuggestionToTrading(sym)} className="px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-md text-sm border border-slate-700 text-slate-200">
-                  {sym}
-                </button>
-              ))}
+            <div className="flex justify-end gap-3 mt-8">
+              <button onClick={() => setIsSettingsOpen(false)} className="btn-secondary">Cancel</button>
+              <button onClick={saveSettings} className="btn-primary">Save Settings</button>
             </div>
           </div>
-        </main>
-      ) : activeTab === 'portfolio' ? (
-        <main className="glass-card p-6">
-          <h2 className="text-xl font-bold mb-6">Portfolio Details</h2>
-          <div className="grid grid-cols-3 gap-4 mb-8">
-            <div className="glass-card p-4"><h3 className="text-slate-400 text-sm">Cash</h3><p className="text-2xl font-mono">${(portfolio?.balance || 0).toFixed(2)}</p></div>
-            <div className="glass-card p-4"><h3 className="text-slate-400 text-sm">Total Value</h3><p className="text-2xl font-mono">${(portfolio?.totalValue || 0).toFixed(2)}</p></div>
-            <div className="glass-card p-4"><h3 className="text-slate-400 text-sm">Perf vs Benchmark</h3><p className="text-2xl font-mono text-green-400">+2.4%</p></div>
-          </div>
-          <table className="w-full text-left">
-            <thead>
-              <tr className="text-slate-400 text-sm border-b border-white/10">
-                <th className="pb-2">Symbol</th>
-                <th className="pb-2">Shares</th>
-                <th className="pb-2">Avg Entry</th>
-                <th className="pb-2">Stop Loss</th>
-                <th className="pb-2">Take Profit</th>
-                <th className="pb-2">Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {positions.map(pos => (
-                <tr key={pos.id} className="border-b border-white/5 cursor-pointer hover:bg-white/5 transition-colors" onClick={() => handlePositionClick(pos)}>
-                  <td className="py-3 font-bold">{pos.symbol}</td>
-                  <td className="py-3">{pos.shares}</td>
-                  <td className="py-3">${(pos.entryPrice || 0).toFixed(2)}</td>
-                  <td className="py-3">${(pos.stopLoss || 0).toFixed(2)}</td>
-                  <td className="py-3">${(pos.takeProfit || 0).toFixed(2)}</td>
-                  <td className="py-3">${ (pos.shares * (pos.symbol === selectedSymbol ? (price || 0) : (pos.entryPrice || 0))).toFixed(2) }</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <h3 className="text-lg font-bold mt-10 mb-4">Trade History</h3>
-          <table className="w-full text-left">
-            <thead>
-              <tr className="text-slate-400 text-sm border-b border-white/10">
-                <th className="pb-2">Symbol</th>
-                <th className="pb-2">Type</th>
-                <th className="pb-2">Shares</th>
-                <th className="pb-2">Exec Price</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tradeHistory.map(trade => (
-                <tr key={trade.id} className="border-b border-white/5">
-                  <td className="py-3 font-bold">{trade.symbol}</td>
-                  <td className={`py-3 ${trade.type === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>{trade.type}</td>
-                  <td className="py-3">{trade.shares}</td>
-                  <td className="py-3">${(trade.price || 0).toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </main>
-      ) : (
-        <main className="glass-card p-6">
-          <h2 className="text-xl font-bold mb-6">Strategy Backtester</h2>
-          <form onSubmit={handleBacktest} className="grid grid-cols-2 gap-4 mb-8">
-            <input type="text" value={backtestParams.symbol} onChange={e => setBacktestParams({...backtestParams, symbol: e.target.value.toUpperCase()})} className="glass-card p-2" placeholder="Symbol" />
-            <input type="date" value={backtestParams.start} onChange={e => setBacktestParams({...backtestParams, start: e.target.value})} className="glass-card p-2" />
-            <input type="date" value={backtestParams.end} onChange={e => setBacktestParams({...backtestParams, end: e.target.value})} className="glass-card p-2" />
-            <button type="submit" disabled={isTesting} className="glass-card p-2 bg-blue-600 hover:bg-blue-700">{isTesting ? 'Running...' : 'Run Backtest'}</button>
-          </form>
-          {backtestResults && (
-            <div className="grid grid-cols-3 gap-4">
-              <div className="glass-card p-4"><h3 className="text-slate-400 text-sm">Profit</h3><p className="text-xl font-mono">${backtestResults.totalProfit.toFixed(2)}</p></div>
-              <div className="glass-card p-4"><h3 className="text-slate-400 text-sm">Win Rate</h3><p className="text-xl font-mono">{(backtestResults.winRate * 100).toFixed(1)}%</p></div>
-              <div className="glass-card p-4"><h3 className="text-slate-400 text-sm">Drawdown</h3><p className="text-xl font-mono">{(backtestResults.maxDrawdown * 100).toFixed(1)}%</p></div>
-            </div>
-          )}
-        </main>
+        </div>
       )}
     </div>
   );

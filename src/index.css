@@ -1,16 +1,56 @@
 @import "tailwindcss";
 
-@layer base {
-  body {
-    @apply bg-[#05070a] text-[#e2e8f0] font-sans antialiased h-screen w-full;
-  }
+@theme {
+  --font-sans: 'Inter', system-ui, sans-serif;
+
+  --color-binance-dark: #0b0e11;
+  --color-binance-gray: #1e2329;
+  --color-binance-light: #2b3139;
+
+  --color-binance-yellow: #fcd535;
+  --color-binance-yellow-hover: #f0c92e;
+
+  --color-binance-green: #0ecb81;
+  --color-binance-red: #f6465d;
+
+  --color-text-main: #eaecef;
+  --color-text-muted: #848e9c;
 }
 
-@layer components {
-  .glass-card {
-    @apply bg-[rgba(15,23,42,0.6)] backdrop-blur-[12px] border border-[rgba(255,255,255,0.08)] rounded-2xl;
-  }
-  .gradient-bg {
-    @apply bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.15)_0%,transparent_50%),radial-gradient(circle_at_100%_100%,rgba(139,92,246,0.15)_0%,transparent_50%)];
-  }
+body {
+  background-color: var(--color-binance-dark);
+  color: var(--color-text-main);
+  font-family: var(--font-sans);
+}
+
+.panel {
+  @apply bg-[#1e2329] border border-[#2b3139] rounded-lg p-4;
+}
+
+.input-field {
+  @apply bg-[#2b3139] border border-[#2b3139] text-white px-3 py-2 rounded focus:outline-none focus:border-[#fcd535] text-sm;
+}
+
+.btn-primary {
+  @apply bg-[#fcd535] hover:bg-[#f0c92e] text-black font-semibold px-4 py-2 rounded text-sm transition-colors;
+}
+
+.btn-secondary {
+  @apply bg-[#2b3139] hover:bg-[#474d57] text-white px-4 py-2 rounded text-sm transition-colors;
+}
+
+.btn-green {
+  @apply bg-[#0ecb81] hover:bg-[#0b9c63] text-white font-semibold px-4 py-2 rounded text-sm transition-colors;
+}
+
+.btn-red {
+  @apply bg-[#f6465d] hover:bg-[#c9394c] text-white font-semibold px-4 py-2 rounded text-sm transition-colors;
+}
+
+.table-header {
+  @apply text-[#848e9c] text-xs font-medium uppercase tracking-wider pb-2 border-b border-[#2b3139];
+}
+
+.table-cell {
+  @apply py-3 text-sm text-[#eaecef];
 }
