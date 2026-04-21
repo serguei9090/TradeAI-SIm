@@ -29,6 +29,13 @@ vi.mock('./db', () => ({
   }
 }));
 
+// Mock fetch globally
+global.fetch = vi.fn(() =>
+  Promise.resolve({
+    json: () => Promise.resolve({ choices: [{ message: { content: "Mocked AI Response" } }] })
+  })
+) as any;
+
 const app = express();
 app.use(express.json());
 app.use('/api', dbRoutes);
@@ -45,5 +52,12 @@ describe('Backend Routes', () => {
     const res = await request(app).get('/api/ai-logs');
     expect(res.status).toBe(200);
     expect(res.body[0].symbol).toBe('AAPL');
+  });
+
+  it('POST /api/ai-chat should return a reply', async () => {
+    const res = await request(app).post('/api/ai-chat').send({ message: 'Hello AI' });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('reply');
+    expect(res.body.reply).toBe('Mocked AI Response');
   });
 });
