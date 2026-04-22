@@ -1,5 +1,4 @@
-Added a "Fund Management" section to the settings modal to allow users to add virtual funds.
-Updated `backend_routes.ts` with a `POST /portfolio/add-funds` endpoint.
-Updated `src/services/storage.ts` with `addFunds` wrapper.
-Updated `src/App.tsx` with the UI and `addFundsAmount` state.
-Added an integration test for the new route in `backend_routes.test.ts`.
+Added a DESIGN.md format spec file.
+Added tests for App.tsx, storage.ts, tradingEngine.ts, and extended backend_routes.test.ts to get code coverage over 80%.
+Updated vitest config to handle jsdom properly.
+Tests pass and coverage is above 85%.
