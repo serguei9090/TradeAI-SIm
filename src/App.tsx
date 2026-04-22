@@ -11,6 +11,12 @@ export default function App() {
   const [modelProvider, setModelProvider] = useState<'gemini' | 'custom'>('custom');
   const [customApiUrl, setCustomApiUrl] = useState('http://localhost:1234/v1');
   const [customApiModel, setCustomApiModel] = useState('local-model');
+
+  useEffect(() => {
+    if (modelProvider === 'gemini' && customApiModel === 'local-model') {
+      setCustomApiModel('gemma-3-12b');
+    }
+  }, [modelProvider, customApiModel]);
   const [apiKey, setApiKey] = useState('');
   const [availableModels, setAvailableModels] = useState<any[]>([]);
   
@@ -53,6 +59,7 @@ export default function App() {
     if (customApiUrl === 'http://localhost:1234/v1' && customApiModel === 'local-model' && !isSettingsOpen) {
         const settings = await getSettings();
         if (settings.customApiUrl) {
+            setModelProvider(settings.modelProvider || 'custom');
             setCustomApiUrl(settings.customApiUrl);
             setCustomApiModel(settings.customApiModel);
             setApiKey(settings.apiKey);
@@ -76,6 +83,25 @@ export default function App() {
     const interval = setInterval(refreshData, 5000);
     return () => clearInterval(interval);
   }, []);
+
+
+  const testConnection = async () => {
+    try {
+      const res = await fetch('/api/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: modelProvider, apiUrl: customApiUrl, apiKey, model: customApiModel })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert(data.message);
+      } else {
+        alert("Error testing connection: " + (data.error || "Unknown error"));
+      }
+    } catch (e: any) {
+      alert("Failed to test connection: " + e.message);
+    }
+  };
 
   const fetchModels = async () => {
     try {
@@ -102,7 +128,7 @@ export default function App() {
   };
 
   const saveSettings = async () => {
-    await updateSettings({ customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions });
+    await updateSettings({ modelProvider, customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions });
     setIsSettingsOpen(false);
   };
 
@@ -342,51 +368,110 @@ export default function App() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm text-[#848e9c] mb-1">API Base URL</label>
-                <input
-                  type="text"
-                  value={customApiUrl}
-                  onChange={(e) => setCustomApiUrl(e.target.value)}
-                  className="input-field w-full"
-                  placeholder="http://localhost:1234/v1"
-                />
+                <label className="block text-sm text-[#848e9c] mb-2">AI Provider</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 text-white cursor-pointer">
+                    <input
+                      type="radio"
+                      name="modelProvider"
+                      value="gemini"
+                      checked={modelProvider === 'gemini'}
+                      onChange={() => setModelProvider('gemini')}
+                      className="accent-[#fcd535]"
+                    />
+                    Google AI Studio
+                  </label>
+                  <label className="flex items-center gap-2 text-white cursor-pointer">
+                    <input
+                      type="radio"
+                      name="modelProvider"
+                      value="custom"
+                      checked={modelProvider === 'custom'}
+                      onChange={() => setModelProvider('custom')}
+                      className="accent-[#fcd535]"
+                    />
+                    Custom API
+                  </label>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm text-[#848e9c] mb-1">API Key (Optional for Local)</label>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  className="input-field w-full"
-                />
-              </div>
-
-              <div className="flex gap-2">
-                <button onClick={fetchModels} className="btn-secondary w-full">Fetch Models</button>
-              </div>
-
-              <div>
-                <label className="block text-sm text-[#848e9c] mb-1">Model ID</label>
-                {availableModels.length > 0 ? (
-                  <select
-                    value={customApiModel}
-                    onChange={(e) => setCustomApiModel(e.target.value)}
-                    className="input-field w-full appearance-none"
-                  >
-                    {availableModels.map(m => (
-                      <option key={m.id} value={m.id}>{m.id}</option>
-                    ))}
-                  </select>
-                ) : (
+              {modelProvider === 'custom' && (
+              <>
+                <div>
+                  <label className="block text-sm text-[#848e9c] mb-1">API Base URL</label>
                   <input
                     type="text"
-                    value={customApiModel}
-                    onChange={(e) => setCustomApiModel(e.target.value)}
+                    value={customApiUrl}
+                    onChange={(e) => setCustomApiUrl(e.target.value)}
+                    className="input-field w-full"
+                    placeholder="http://localhost:1234/v1"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-[#848e9c] mb-1">API Key (Optional for Local)</label>
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
                     className="input-field w-full"
                   />
-                )}
-              </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button onClick={fetchModels} className="btn-secondary w-full">Fetch Models</button>
+                </div>
+              </>
+            )}
+
+            {modelProvider === 'gemini' && (
+              <>
+                <div>
+                  <label className="block text-sm text-[#848e9c] mb-1">API Key (Optional, uses ENV by default)</label>
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    className="input-field w-full"
+                    placeholder="google_api from env if empty"
+                  />
+                </div>
+              </>
+            )}
+
+            <div className="flex gap-2">
+              <button onClick={testConnection} className="btn-secondary w-full">Test Connection</button>
+            </div>
+
+            <div>
+              <label className="block text-sm text-[#848e9c] mb-1">Model ID</label>
+              {modelProvider === 'gemini' ? (
+                <input
+                  type="text"
+                  value={customApiModel || 'gemma-3-12b'}
+                  onChange={(e) => setCustomApiModel(e.target.value)}
+                  className="input-field w-full"
+                  placeholder="gemma-3-12b"
+                />
+              ) : availableModels.length > 0 ? (
+                <select
+                  value={customApiModel}
+                  onChange={(e) => setCustomApiModel(e.target.value)}
+                  className="input-field w-full appearance-none"
+                >
+                  {availableModels.map(m => (
+                    <option key={m.id} value={m.id}>{m.id}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={customApiModel}
+                  onChange={(e) => setCustomApiModel(e.target.value)}
+                  className="input-field w-full"
+                />
+              )}
+            </div>
 
               <hr className="border-[#2b3139] my-4" />
               <h3 className="text-md font-semibold text-white mb-2">Trading Configuration</h3>

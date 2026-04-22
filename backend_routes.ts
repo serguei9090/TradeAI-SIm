@@ -1,6 +1,7 @@
 import express from 'express';
 import db from './db';
 import { getEngineRunning, setEngineRunning } from './tradingEngine';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const router = express.Router();
 
@@ -128,12 +129,12 @@ router.get('/settings', (req, res) => {
 });
 
 router.post('/settings', (req, res) => {
-  const { customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions } = req.body;
+  const { modelProvider, customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions } = req.body;
 
   db.run(`UPDATE settings SET
-    customApiUrl = ?, customApiModel = ?, apiKey = ?, tradeSize = ?, stopLossPct = ?, takeProfitPct = ?, maxPositions = ?
+    modelProvider = ?, customApiUrl = ?, customApiModel = ?, apiKey = ?, tradeSize = ?, stopLossPct = ?, takeProfitPct = ?, maxPositions = ?
     WHERE id = 'default'`,
-    [customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions],
+    [modelProvider, customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });
@@ -159,26 +160,38 @@ router.post('/ai-chat', async (req, res) => {
       db.get("SELECT * FROM settings WHERE id = 'default'", (err, row) => resolve(row || {}));
     });
 
-    const targetUrl = settings.customApiUrl || process.env.AI_API_BASE || 'http://localhost:1234/v1';
+    const provider = settings.modelProvider || 'custom';
     const targetModel = settings.customApiModel || process.env.AI_MODEL || 'local-model';
-    const aiApiKey = settings.apiKey || process.env.AI_API_KEY || "no-key-needed";
 
-    const aiRes = await fetch(`${targetUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${aiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: targetModel,
-        messages: [{ role: "user", content: message }],
-      }),
-    });
+    if (provider === 'gemini') {
+      const apiKey = settings.apiKey || process.env.google_api;
+      if (!apiKey) return res.status(400).json({ error: "Gemini API Key missing" });
 
-    const aiData = await aiRes.json();
-    const reply = aiData.choices?.[0]?.message?.content?.trim() || "No response from AI.";
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const aiModel = genAI.getGenerativeModel({ model: targetModel });
+      const result = await aiModel.generateContent(message);
+      const reply = result.response.text();
+      res.json({ reply });
+    } else {
+      const targetUrl = settings.customApiUrl || process.env.AI_API_BASE || 'http://localhost:1234/v1';
+      const aiApiKey = settings.apiKey || process.env.AI_API_KEY || "no-key-needed";
 
-    res.json({ reply });
+      const aiRes = await fetch(`${targetUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${aiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: targetModel,
+          messages: [{ role: "user", content: message }],
+        }),
+      });
+
+      const aiData = await aiRes.json();
+      const reply = aiData.choices?.[0]?.message?.content?.trim() || "No response from AI.";
+      res.json({ reply });
+    }
   } catch (err: any) {
     console.error("AI Chat Error:", err);
     res.status(500).json({ error: err.message });

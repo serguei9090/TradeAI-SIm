@@ -3,7 +3,9 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import dbRoutes from "./backend_routes";
+import db from "./db";
 import { startEngine } from "./tradingEngine";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -15,6 +17,44 @@ async function startServer() {
 
   // Use DB routes
   app.use("/api/db", dbRoutes);
+
+  // API route to test connection
+  app.post("/api/test-connection", async (req, res) => {
+    const { provider, apiUrl, apiKey, model } = req.body;
+
+    try {
+      if (provider === 'gemini') {
+        // Use user-provided key, or fallback to google_api env var
+        const genAiKey = apiKey || process.env.google_api;
+        if (!genAiKey) {
+          return res.status(400).json({ error: "Missing Gemini API Key. Provide one or set google_api in .env" });
+        }
+
+        const genAI = new GoogleGenerativeAI(genAiKey);
+        const aiModel = genAI.getGenerativeModel({ model: model || "gemma-3-12b" });
+        const result = await aiModel.generateContent("Hello! Are you there?");
+        const text = result.response.text();
+        res.json({ success: true, message: "Connected to Google AI Studio successfully!" });
+      } else {
+        // Custom provider testing
+        if (!apiUrl) {
+           return res.status(400).json({ error: "Missing custom API URL" });
+        }
+        const targetUrl = apiUrl.replace(/\/v1\/?$/, '');
+        const response = await fetch(`${targetUrl}/v1/models`, {
+          headers: { "Authorization": `Bearer ${apiKey || "no-key"}` }
+        });
+
+        if (!response.ok) {
+           throw new Error(`Failed to fetch from custom URL: ${response.statusText}`);
+        }
+        res.json({ success: true, message: "Connected to Custom API successfully!" });
+      }
+    } catch (error: any) {
+      console.error("Test Connection Error:", error);
+      res.status(500).json({ error: error.message || "Failed to connect" });
+    }
+  });
 
   // API route for Model Auto-Fetch
   app.post("/api/fetch-models", async (req, res) => {
@@ -36,30 +76,55 @@ async function startServer() {
   app.post("/api/ai-proxy", async (req, res) => {
     const { prompt, provider, apiUrl, model } = req.body;
     
-    // Choose endpoint/model based on provider
-    const targetUrl = provider === 'custom' && apiUrl ? apiUrl : process.env.AI_API_BASE;
-    const targetModel = provider === 'custom' && model ? model : process.env.AI_MODEL;
-    const apiKey = process.env.AI_API_KEY || "no-key-needed";
-
-    if (!targetUrl || !targetModel) {
-      return res.status(400).json({ error: "AI configuration not set" });
-    }
-
     try {
-      const response = await fetch(`${targetUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: targetModel,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
+      if (provider === 'gemini') {
+        db.get("SELECT * FROM settings WHERE id = 'default'", async (err, settings: any) => {
+          if (err) return res.status(500).json({ error: "DB Error" });
 
-      const data = await response.json();
-      res.json(data);
+          const apiKey = settings?.apiKey || process.env.google_api;
+          const targetModel = settings?.customApiModel || model || "gemma-3-12b";
+
+          if (!apiKey) return res.status(400).json({ error: "Gemini API Key missing" });
+
+          try {
+             const genAI = new GoogleGenerativeAI(apiKey);
+             const aiModel = genAI.getGenerativeModel({ model: targetModel });
+             const result = await aiModel.generateContent(prompt);
+             const text = result.response.text();
+
+             // Wrap in OpenAI format to not break the frontend
+             res.json({
+               choices: [{ message: { content: text } }]
+             });
+          } catch (e: any) {
+             res.status(500).json({ error: "Gemini error: " + e.message });
+          }
+        });
+      } else {
+        // Choose endpoint/model based on provider (custom)
+        const targetUrl = apiUrl ? apiUrl : process.env.AI_API_BASE;
+        const targetModel = model ? model : process.env.AI_MODEL;
+        const apiKey = process.env.AI_API_KEY || "no-key-needed";
+
+        if (!targetUrl || !targetModel) {
+          return res.status(400).json({ error: "AI configuration not set" });
+        }
+
+        const response = await fetch(`${targetUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: targetModel,
+            messages: [{ role: "user", content: prompt }],
+          }),
+        });
+
+        const data = await response.json();
+        res.json(data);
+      }
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch from AI endpoint" });
     }
@@ -86,44 +151,6 @@ async function startServer() {
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch stock data" });
     }
-  });
-
-
-  // AI Chat Route
-  app.post("/api/ai-chat", async (req, res) => {
-    const { message } = req.body;
-
-    // Fetch settings directly from DB here to make sure we use latest
-    const db = require('./db').default;
-    db.get("SELECT * FROM settings WHERE id = 'default'", async (err, settings) => {
-      if (err) return res.status(500).json({ error: "DB Error" });
-
-      const targetUrl = settings?.customApiUrl || process.env.AI_API_BASE || 'http://localhost:1234/v1';
-      const targetModel = settings?.customApiModel || process.env.AI_MODEL || 'local-model';
-      const apiKey = settings?.apiKey || process.env.AI_API_KEY || "no-key-needed";
-
-      const prompt = `You are a helpful AI trading assistant. The user will ask you about the market or what stocks to add. Be concise, professional, and give direct stock symbol recommendations if asked. User: ${message}`;
-
-      try {
-        const response = await fetch(`${targetUrl}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: targetModel,
-            messages: [{ role: "user", content: prompt }],
-          }),
-        });
-
-        const data = await response.json();
-        const reply = data.choices?.[0]?.message?.content?.trim() || "I couldn't generate a response.";
-        res.json({ reply });
-      } catch (error) {
-        res.status(500).json({ error: "Failed to connect to AI" });
-      }
-    });
   });
 
   // Vite middleware for development

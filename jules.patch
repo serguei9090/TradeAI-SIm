@@ -1,0 +1,504 @@
+diff --git a/backend_routes.ts b/backend_routes.ts
+index 4a993c3..ec21dd1 100644
+--- a/backend_routes.ts
++++ b/backend_routes.ts
+@@ -1,6 +1,7 @@
+ import express from 'express';
+ import db from './db';
+ import { getEngineRunning, setEngineRunning } from './tradingEngine';
++import { GoogleGenerativeAI } from "@google/generative-ai";
+
+ const router = express.Router();
+
+@@ -128,12 +129,12 @@ router.get('/settings', (req, res) => {
+ });
+
+ router.post('/settings', (req, res) => {
+-  const { customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions } = req.body;
++  const { modelProvider, customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions } = req.body;
+
+   db.run(`UPDATE settings SET
+-    customApiUrl = ?, customApiModel = ?, apiKey = ?, tradeSize = ?, stopLossPct = ?, takeProfitPct = ?, maxPositions = ?
++    modelProvider = ?, customApiUrl = ?, customApiModel = ?, apiKey = ?, tradeSize = ?, stopLossPct = ?, takeProfitPct = ?, maxPositions = ?
+     WHERE id = 'default'`,
+-    [customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions],
++    [modelProvider, customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions],
+     function(err) {
+       if (err) return res.status(500).json({ error: err.message });
+       res.json({ success: true });
+@@ -159,26 +160,38 @@ router.post('/ai-chat', async (req, res) => {
+       db.get("SELECT * FROM settings WHERE id = 'default'", (err, row) => resolve(row || {}));
+     });
+
+-    const targetUrl = settings.customApiUrl || process.env.AI_API_BASE || 'http://localhost:1234/v1';
++    const provider = settings.modelProvider || 'custom';
+     const targetModel = settings.customApiModel || process.env.AI_MODEL || 'local-model';
+-    const aiApiKey = settings.apiKey || process.env.AI_API_KEY || "no-key-needed";
+-
+-    const aiRes = await fetch(`${targetUrl}/chat/completions`, {
+-      method: "POST",
+-      headers: {
+-        "Content-Type": "application/json",
+-        "Authorization": `Bearer ${aiApiKey}`,
+-      },
+-      body: JSON.stringify({
+-        model: targetModel,
+-        messages: [{ role: "user", content: message }],
+-      }),
+-    });
+-
+-    const aiData = await aiRes.json();
+-    const reply = aiData.choices?.[0]?.message?.content?.trim() || "No response from AI.";
+-
+-    res.json({ reply });
++
++    if (provider === 'gemini') {
++      const apiKey = settings.apiKey || process.env.google_api;
++      if (!apiKey) return res.status(400).json({ error: "Gemini API Key missing" });
++
++      const genAI = new GoogleGenerativeAI(apiKey);
++      const aiModel = genAI.getGenerativeModel({ model: targetModel });
++      const result = await aiModel.generateContent(message);
++      const reply = result.response.text();
++      res.json({ reply });
++    } else {
++      const targetUrl = settings.customApiUrl || process.env.AI_API_BASE || 'http://localhost:1234/v1';
++      const aiApiKey = settings.apiKey || process.env.AI_API_KEY || "no-key-needed";
++
++      const aiRes = await fetch(`${targetUrl}/chat/completions`, {
++        method: "POST",
++        headers: {
++          "Content-Type": "application/json",
++          "Authorization": `Bearer ${aiApiKey}`,
++        },
++        body: JSON.stringify({
++          model: targetModel,
++          messages: [{ role: "user", content: message }],
++        }),
++      });
++
++      const aiData = await aiRes.json();
++      const reply = aiData.choices?.[0]?.message?.content?.trim() || "No response from AI.";
++      res.json({ reply });
++    }
+   } catch (err: any) {
+     console.error("AI Chat Error:", err);
+     res.status(500).json({ error: err.message });
+diff --git a/db.ts b/db.ts
+index 7d2645b..9b25ac1 100644
+--- a/db.ts
++++ b/db.ts
+@@ -72,6 +72,16 @@ const db = new sqlite3.Database(dbPath, (err) => {
+         }
+       });
+
++      // Migrate settings table to add modelProvider
++      db.all("PRAGMA table_info(settings)", (err, columns: any[]) => {
++        if (!err && columns) {
++          const hasModelProvider = columns.some(col => col.name === 'modelProvider');
++          if (!hasModelProvider) {
++            db.run("ALTER TABLE settings ADD COLUMN modelProvider TEXT DEFAULT 'custom'");
++          }
++        }
++      });
++
+       // AI Logs Table
+       db.run(`CREATE TABLE IF NOT EXISTS ai_logs (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+diff --git a/server.ts b/server.ts
+index a5574c8..0693b8b 100644
+--- a/server.ts
++++ b/server.ts
+@@ -3,7 +3,9 @@ import { createServer as createViteServer } from "vite";
+ import path from "path";
+ import { fileURLToPath } from "url";
+ import dbRoutes from "./backend_routes";
++import db from "./db";
+ import { startEngine } from "./tradingEngine";
++import { GoogleGenerativeAI } from "@google/generative-ai";
+
+ const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+@@ -16,6 +18,44 @@ async function startServer() {
+   // Use DB routes
+   app.use("/api/db", dbRoutes);
+
++  // API route to test connection
++  app.post("/api/test-connection", async (req, res) => {
++    const { provider, apiUrl, apiKey, model } = req.body;
++
++    try {
++      if (provider === 'gemini') {
++        // Use user-provided key, or fallback to google_api env var
++        const genAiKey = apiKey || process.env.google_api;
++        if (!genAiKey) {
++          return res.status(400).json({ error: "Missing Gemini API Key. Provide one or set google_api in .env" });
++        }
++
++        const genAI = new GoogleGenerativeAI(genAiKey);
++        const aiModel = genAI.getGenerativeModel({ model: model || "gemma-3-12b" });
++        const result = await aiModel.generateContent("Hello! Are you there?");
++        const text = result.response.text();
++        res.json({ success: true, message: "Connected to Google AI Studio successfully!" });
++      } else {
++        // Custom provider testing
++        if (!apiUrl) {
++           return res.status(400).json({ error: "Missing custom API URL" });
++        }
++        const targetUrl = apiUrl.replace(/\/v1\/?$/, '');
++        const response = await fetch(`${targetUrl}/v1/models`, {
++          headers: { "Authorization": `Bearer ${apiKey || "no-key"}` }
++        });
++
++        if (!response.ok) {
++           throw new Error(`Failed to fetch from custom URL: ${response.statusText}`);
++        }
++        res.json({ success: true, message: "Connected to Custom API successfully!" });
++      }
++    } catch (error: any) {
++      console.error("Test Connection Error:", error);
++      res.status(500).json({ error: error.message || "Failed to connect" });
++    }
++  });
++
+   // API route for Model Auto-Fetch
+   app.post("/api/fetch-models", async (req, res) => {
+     const { apiUrl, apiKey } = req.body;
+@@ -36,30 +76,55 @@ async function startServer() {
+   app.post("/api/ai-proxy", async (req, res) => {
+     const { prompt, provider, apiUrl, model } = req.body;
+
+-    // Choose endpoint/model based on provider
+-    const targetUrl = provider === 'custom' && apiUrl ? apiUrl : process.env.AI_API_BASE;
+-    const targetModel = provider === 'custom' && model ? model : process.env.AI_MODEL;
+-    const apiKey = process.env.AI_API_KEY || "no-key-needed";
++    try {
++      if (provider === 'gemini') {
++        db.get("SELECT * FROM settings WHERE id = 'default'", async (err, settings: any) => {
++          if (err) return res.status(500).json({ error: "DB Error" });
++
++          const apiKey = settings?.apiKey || process.env.google_api;
++          const targetModel = settings?.customApiModel || model || "gemma-3-12b";
++
++          if (!apiKey) return res.status(400).json({ error: "Gemini API Key missing" });
++
++          try {
++             const genAI = new GoogleGenerativeAI(apiKey);
++             const aiModel = genAI.getGenerativeModel({ model: targetModel });
++             const result = await aiModel.generateContent(prompt);
++             const text = result.response.text();
++
++             // Wrap in OpenAI format to not break the frontend
++             res.json({
++               choices: [{ message: { content: text } }]
++             });
++          } catch (e: any) {
++             res.status(500).json({ error: "Gemini error: " + e.message });
++          }
++        });
++      } else {
++        // Choose endpoint/model based on provider (custom)
++        const targetUrl = apiUrl ? apiUrl : process.env.AI_API_BASE;
++        const targetModel = model ? model : process.env.AI_MODEL;
++        const apiKey = process.env.AI_API_KEY || "no-key-needed";
+
+-    if (!targetUrl || !targetModel) {
+-      return res.status(400).json({ error: "AI configuration not set" });
+-    }
++        if (!targetUrl || !targetModel) {
++          return res.status(400).json({ error: "AI configuration not set" });
++        }
+
+-    try {
+-      const response = await fetch(`${targetUrl}/chat/completions`, {
+-        method: "POST",
+-        headers: {
+-          "Content-Type": "application/json",
+-          "Authorization": `Bearer ${apiKey}`,
+-        },
+-        body: JSON.stringify({
+-          model: targetModel,
+-          messages: [{ role: "user", content: prompt }],
+-        }),
+-      });
++        const response = await fetch(`${targetUrl}/chat/completions`, {
++          method: "POST",
++          headers: {
++            "Content-Type": "application/json",
++            "Authorization": `Bearer ${apiKey}`,
++          },
++          body: JSON.stringify({
++            model: targetModel,
++            messages: [{ role: "user", content: prompt }],
++          }),
++        });
+
+-      const data = await response.json();
+-      res.json(data);
++        const data = await response.json();
++        res.json(data);
++      }
+     } catch (error) {
+       res.status(500).json({ error: "Failed to fetch from AI endpoint" });
+     }
+@@ -88,44 +153,6 @@ async function startServer() {
+     }
+   });
+
+-
+-  // AI Chat Route
+-  app.post("/api/ai-chat", async (req, res) => {
+-    const { message } = req.body;
+-
+-    // Fetch settings directly from DB here to make sure we use latest
+-    const db = require('./db').default;
+-    db.get("SELECT * FROM settings WHERE id = 'default'", async (err, settings) => {
+-      if (err) return res.status(500).json({ error: "DB Error" });
+-
+-      const targetUrl = settings?.customApiUrl || process.env.AI_API_BASE || 'http://localhost:1234/v1';
+-      const targetModel = settings?.customApiModel || process.env.AI_MODEL || 'local-model';
+-      const apiKey = settings?.apiKey || process.env.AI_API_KEY || "no-key-needed";
+-
+-      const prompt = `You are a helpful AI trading assistant. The user will ask you about the market or what stocks to add. Be concise, professional, and give direct stock symbol recommendations if asked. User: ${message}`;
+-
+-      try {
+-        const response = await fetch(`${targetUrl}/chat/completions`, {
+-          method: "POST",
+-          headers: {
+-            "Content-Type": "application/json",
+-            "Authorization": `Bearer ${apiKey}`,
+-          },
+-          body: JSON.stringify({
+-            model: targetModel,
+-            messages: [{ role: "user", content: prompt }],
+-          }),
+-        });
+-
+-        const data = await response.json();
+-        const reply = data.choices?.[0]?.message?.content?.trim() || "I couldn't generate a response.";
+-        res.json({ reply });
+-      } catch (error) {
+-        res.status(500).json({ error: "Failed to connect to AI" });
+-      }
+-    });
+-  });
+-
+   // Vite middleware for development
+   if (process.env.NODE_ENV !== "production") {
+     const vite = await createViteServer({
+@@ -148,4 +175,4 @@ async function startServer() {
+   });
+ }
+
+-startServer();
++startServer();
+\ No newline at end of file
+diff --git a/src/App.tsx b/src/App.tsx
+index 7f00996..8d1b877 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -11,6 +11,12 @@ export default function App() {
+   const [modelProvider, setModelProvider] = useState<'gemini' | 'custom'>('custom');
+   const [customApiUrl, setCustomApiUrl] = useState('http://localhost:1234/v1');
+   const [customApiModel, setCustomApiModel] = useState('local-model');
++
++  useEffect(() => {
++    if (modelProvider === 'gemini' && customApiModel === 'local-model') {
++      setCustomApiModel('gemma-3-12b');
++    }
++  }, [modelProvider, customApiModel]);
+   const [apiKey, setApiKey] = useState('');
+   const [availableModels, setAvailableModels] = useState<any[]>([]);
+
+@@ -53,6 +59,7 @@ export default function App() {
+     if (customApiUrl === 'http://localhost:1234/v1' && customApiModel === 'local-model' && !isSettingsOpen) {
+         const settings = await getSettings();
+         if (settings.customApiUrl) {
++            setModelProvider(settings.modelProvider || 'custom');
+             setCustomApiUrl(settings.customApiUrl);
+             setCustomApiModel(settings.customApiModel);
+             setApiKey(settings.apiKey);
+@@ -77,6 +84,25 @@ export default function App() {
+     return () => clearInterval(interval);
+   }, []);
+
++
++  const testConnection = async () => {
++    try {
++      const res = await fetch('/api/test-connection', {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ provider: modelProvider, apiUrl: customApiUrl, apiKey, model: customApiModel })
++      });
++      const data = await res.json();
++      if (res.ok && data.success) {
++        alert(data.message);
++      } else {
++        alert("Error testing connection: " + (data.error || "Unknown error"));
++      }
++    } catch (e: any) {
++      alert("Failed to test connection: " + e.message);
++    }
++  };
++
+   const fetchModels = async () => {
+     try {
+       const res = await fetch('/api/fetch-models', {
+@@ -102,7 +128,7 @@ export default function App() {
+   };
+
+   const saveSettings = async () => {
+-    await updateSettings({ customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions });
++    await updateSettings({ modelProvider, customApiUrl, customApiModel, apiKey, tradeSize, stopLossPct, takeProfitPct, maxPositions });
+     setIsSettingsOpen(false);
+   };
+
+@@ -342,51 +368,110 @@ export default function App() {
+
+             <div className="space-y-4">
+               <div>
+-                <label className="block text-sm text-[#848e9c] mb-1">API Base URL</label>
+-                <input
+-                  type="text"
+-                  value={customApiUrl}
+-                  onChange={(e) => setCustomApiUrl(e.target.value)}
+-                  className="input-field w-full"
+-                  placeholder="http://localhost:1234/v1"
+-                />
++                <label className="block text-sm text-[#848e9c] mb-2">AI Provider</label>
++                <div className="flex gap-4">
++                  <label className="flex items-center gap-2 text-white cursor-pointer">
++                    <input
++                      type="radio"
++                      name="modelProvider"
++                      value="gemini"
++                      checked={modelProvider === 'gemini'}
++                      onChange={() => setModelProvider('gemini')}
++                      className="accent-[#fcd535]"
++                    />
++                    Google AI Studio
++                  </label>
++                  <label className="flex items-center gap-2 text-white cursor-pointer">
++                    <input
++                      type="radio"
++                      name="modelProvider"
++                      value="custom"
++                      checked={modelProvider === 'custom'}
++                      onChange={() => setModelProvider('custom')}
++                      className="accent-[#fcd535]"
++                    />
++                    Custom API
++                  </label>
++                </div>
+               </div>
+
+-              <div>
+-                <label className="block text-sm text-[#848e9c] mb-1">API Key (Optional for Local)</label>
+-                <input
+-                  type="password"
+-                  value={apiKey}
+-                  onChange={(e) => setApiKey(e.target.value)}
+-                  className="input-field w-full"
+-                />
+-              </div>
++              {modelProvider === 'custom' && (
++              <>
++                <div>
++                  <label className="block text-sm text-[#848e9c] mb-1">API Base URL</label>
++                  <input
++                    type="text"
++                    value={customApiUrl}
++                    onChange={(e) => setCustomApiUrl(e.target.value)}
++                    className="input-field w-full"
++                    placeholder="http://localhost:1234/v1"
++                  />
++                </div>
+
+-              <div className="flex gap-2">
+-                <button onClick={fetchModels} className="btn-secondary w-full">Fetch Models</button>
+-              </div>
++                <div>
++                  <label className="block text-sm text-[#848e9c] mb-1">API Key (Optional for Local)</label>
++                  <input
++                    type="password"
++                    value={apiKey}
++                    onChange={(e) => setApiKey(e.target.value)}
++                    className="input-field w-full"
++                  />
++                </div>
+
+-              <div>
+-                <label className="block text-sm text-[#848e9c] mb-1">Model ID</label>
+-                {availableModels.length > 0 ? (
+-                  <select
+-                    value={customApiModel}
+-                    onChange={(e) => setCustomApiModel(e.target.value)}
+-                    className="input-field w-full appearance-none"
+-                  >
+-                    {availableModels.map(m => (
+-                      <option key={m.id} value={m.id}>{m.id}</option>
+-                    ))}
+-                  </select>
+-                ) : (
++                <div className="flex gap-2">
++                  <button onClick={fetchModels} className="btn-secondary w-full">Fetch Models</button>
++                </div>
++              </>
++            )}
++
++            {modelProvider === 'gemini' && (
++              <>
++                <div>
++                  <label className="block text-sm text-[#848e9c] mb-1">API Key (Optional, uses ENV by default)</label>
+                   <input
+-                    type="text"
+-                    value={customApiModel}
+-                    onChange={(e) => setCustomApiModel(e.target.value)}
++                    type="password"
++                    value={apiKey}
++                    onChange={(e) => setApiKey(e.target.value)}
+                     className="input-field w-full"
++                    placeholder="google_api from env if empty"
+                   />
+-                )}
+-              </div>
++                </div>
++              </>
++            )}
++
++            <div className="flex gap-2">
++              <button onClick={testConnection} className="btn-secondary w-full">Test Connection</button>
++            </div>
++
++            <div>
++              <label className="block text-sm text-[#848e9c] mb-1">Model ID</label>
++              {modelProvider === 'gemini' ? (
++                <input
++                  type="text"
++                  value={customApiModel || 'gemma-3-12b'}
++                  onChange={(e) => setCustomApiModel(e.target.value)}
++                  className="input-field w-full"
++                  placeholder="gemma-3-12b"
++                />
++              ) : availableModels.length > 0 ? (
++                <select
++                  value={customApiModel}
++                  onChange={(e) => setCustomApiModel(e.target.value)}
++                  className="input-field w-full appearance-none"
++                >
++                  {availableModels.map(m => (
++                    <option key={m.id} value={m.id}>{m.id}</option>
++                  ))}
++                </select>
++              ) : (
++                <input
++                  type="text"
++                  value={customApiModel}
++                  onChange={(e) => setCustomApiModel(e.target.value)}
++                  className="input-field w-full"
++                />
++              )}
++            </div>
+
+               <hr className="border-[#2b3139] my-4" />
+               <h3 className="text-md font-semibold text-white mb-2">Trading Configuration</h3>

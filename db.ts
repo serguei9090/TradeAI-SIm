@@ -72,6 +72,16 @@ const db = new sqlite3.Database(dbPath, (err) => {
         }
       });
 
+      // Migrate settings table to add modelProvider
+      db.all("PRAGMA table_info(settings)", (err, columns: any[]) => {
+        if (!err && columns) {
+          const hasModelProvider = columns.some(col => col.name === 'modelProvider');
+          if (!hasModelProvider) {
+            db.run("ALTER TABLE settings ADD COLUMN modelProvider TEXT DEFAULT 'custom'");
+          }
+        }
+      });
+
       // AI Logs Table
       db.run(`CREATE TABLE IF NOT EXISTS ai_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
