@@ -18,66 +18,66 @@
 }
 
 body {
-  background-color: var(--color-binance-dark);
-  color: var(--color-text-main);
-  font-family: var(--font-sans);
+	background-color: var(--color-binance-dark);
+	color: var(--color-text-main);
+	font-family: var(--font-sans);
 }
 
 .panel {
-  @apply bg-[#1e2329] border border-[#2b3139] rounded-lg p-4;
+	@apply bg-[#1e2329] border border-[#2b3139] rounded-lg p-4;
 }
 
 .input-field {
-  @apply bg-[#2b3139] border border-[#2b3139] text-white px-3 py-2 rounded focus:outline-none focus:border-[#fcd535] text-sm;
+	@apply bg-[#2b3139] border border-[#2b3139] text-white px-3 py-2 rounded focus:outline-none focus:border-[#fcd535] text-sm;
 }
 
 .btn-primary {
-  @apply bg-[#fcd535] hover:bg-[#f0c92e] text-black font-semibold px-4 py-2 rounded text-sm transition-colors;
+	@apply bg-[#fcd535] hover:bg-[#f0c92e] text-black font-semibold px-4 py-2 rounded text-sm transition-colors;
 }
 
 .btn-secondary {
-  @apply bg-[#2b3139] hover:bg-[#474d57] text-white px-4 py-2 rounded text-sm transition-colors;
+	@apply bg-[#2b3139] hover:bg-[#474d57] text-white px-4 py-2 rounded text-sm transition-colors;
 }
 
 .btn-green {
-  @apply bg-[#0ecb81] hover:bg-[#0b9c63] text-white font-semibold px-4 py-2 rounded text-sm transition-colors;
+	@apply bg-[#0ecb81] hover:bg-[#0b9c63] text-white font-semibold px-4 py-2 rounded text-sm transition-colors;
 }
 
 .btn-red {
-  @apply bg-[#f6465d] hover:bg-[#c9394c] text-white font-semibold px-4 py-2 rounded text-sm transition-colors;
+	@apply bg-[#f6465d] hover:bg-[#c9394c] text-white font-semibold px-4 py-2 rounded text-sm transition-colors;
 }
 
 .table-header {
-  @apply text-[#848e9c] text-xs font-medium uppercase tracking-wider pb-2 border-b border-[#2b3139];
+	@apply text-[#848e9c] text-xs font-medium uppercase tracking-wider pb-2 border-b border-[#2b3139];
 }
 
 .table-cell {
-  @apply py-3 text-sm text-[#eaecef];
+	@apply py-3 text-sm text-[#eaecef];
 }
 
 @keyframes slideIn {
-  from {
-    transform: translateX(100%);
-  }
-  to {
-    transform: translateX(0);
-  }
+	from {
+		transform: translateX(100%);
+	}
+	to {
+		transform: translateX(0);
+	}
 }
 
 .animate-slide-in {
-  animation: slideIn 0.3s ease-out forwards;
+	animation: slideIn 0.3s ease-out forwards;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
+	width: 6px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: #1e2329;
+	background: #1e2329;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #474d57;
-  border-radius: 3px;
+	background: #474d57;
+	border-radius: 3px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #848e9c;
+	background: #848e9c;
 }
