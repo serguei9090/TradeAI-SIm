@@ -176,6 +176,15 @@ export default function App() {
     setIsEngineRunning(!isEngineRunning);
   };
 
+
+  const safePortfolioDashboard = Array.isArray(portfolio) ? portfolio : [];
+  const dashboardTotalPortfolioValue = safePortfolioDashboard.reduce((acc, pos) => acc + ((pos.shares || 0) * (pos.currentPrice || 0)), 0);
+  const dashboardTotalValue = (typeof funds === 'number' ? funds : 0) + dashboardTotalPortfolioValue;
+
+  const dashboardUnrealizedGain = safePortfolioDashboard.reduce((acc, pos) => {
+    return acc + (((pos.currentPrice || 0) - (pos.avgPrice || 0)) * (pos.shares || 0));
+  }, 0);
+
   return (
     <div className="min-h-screen bg-[#0b0e11] text-[#eaecef] font-sans selection:bg-[#fcd535] selection:text-black">
       {/* Top Navbar */}
@@ -217,6 +226,27 @@ export default function App() {
           </button>
         </div>
       </nav>
+
+      {/* Dashboard Widgets */}
+      <div className="px-6 py-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-[#1e2329] border border-[#2b3139] p-4 rounded-xl flex flex-col justify-center shadow-md">
+          <span className="text-[#848e9c] text-sm font-medium mb-1">Total Value (Expected)</span>
+          <span className="text-2xl font-bold text-white">${dashboardTotalValue.toFixed(2)}</span>
+        </div>
+        <div className="bg-[#1e2329] border border-[#2b3139] p-4 rounded-xl flex flex-col justify-center shadow-md">
+          <span className="text-[#848e9c] text-sm font-medium mb-1">Total Unrealized Gain</span>
+          <span className={`text-2xl font-bold ${dashboardUnrealizedGain >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
+             {dashboardUnrealizedGain >= 0 ? '+' : ''}${dashboardUnrealizedGain > 0 ? dashboardUnrealizedGain.toFixed(2) : '0.00'}
+          </span>
+        </div>
+        <div className="bg-[#1e2329] border border-[#2b3139] p-4 rounded-xl flex flex-col justify-center shadow-md">
+          <span className="text-[#848e9c] text-sm font-medium mb-1">Total Unrealized Loss</span>
+          <span className={`text-2xl font-bold ${dashboardUnrealizedGain < 0 ? 'text-[#f6465d]' : 'text-white'}`}>
+            {dashboardUnrealizedGain < 0 ? '' : ''}${dashboardUnrealizedGain < 0 ? Math.abs(dashboardUnrealizedGain).toFixed(2) : '0.00'}
+          </span>
+        </div>
+      </div>
+
 
       {/* Main Content */}
       <div className="p-6 max-w-7xl mx-auto">
