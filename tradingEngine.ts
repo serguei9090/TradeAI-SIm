@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { acpManager } from "./acpManager";
 import db from "./db";
 
 // A simple in-memory flag to control the engine
@@ -76,15 +76,7 @@ Then, on a new line, provide a short 1-sentence reasoning.`;
 		let rawResponse = "HOLD\nNo AI response";
 		try {
 			if (provider === "gemini") {
-				const genAiKey = settings.apiKey || process.env.google_api;
-				if (!genAiKey) {
-					console.log("Gemini API key missing, skipping trade evaluation.");
-					return;
-				}
-				const genAI = new GoogleGenerativeAI(genAiKey);
-				const aiModel = genAI.getGenerativeModel({ model: targetModel });
-				const result = await aiModel.generateContent(prompt);
-				rawResponse = result.response.text();
+				rawResponse = await acpManager.prompt(prompt);
 			} else {
 				const targetUrl =
 					settings.customApiUrl ||

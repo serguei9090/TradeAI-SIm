@@ -244,7 +244,8 @@ export default function App() {
 		0,
 	);
 	const dashboardTotalValue =
-		(typeof funds === "number" ? funds : 0) + dashboardTotalPortfolioValue;
+		(typeof portfolio.balance === "number" ? portfolio.balance : 0) +
+		dashboardTotalPortfolioValue;
 
 	const dashboardUnrealizedGain = safePortfolioDashboard.reduce((acc, pos) => {
 		return (

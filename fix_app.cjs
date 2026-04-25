@@ -1,9 +1,6 @@
-const fs = require('fs');
-let code = fs.readFileSync('src/App.tsx', 'utf-8');
+const fs = require("fs");
+let code = fs.readFileSync("src/App.tsx", "utf-8");
 
-code = code.replace(
-  "fetchData();",
-  "refreshData();"
-);
+code = code.replace("fetchData();", "refreshData();");
 
-fs.writeFileSync('src/App.tsx', code);
+fs.writeFileSync("src/App.tsx", code);

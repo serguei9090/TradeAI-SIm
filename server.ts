@@ -1,8 +1,8 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import express from "express";
 import { createServer as createViteServer } from "vite";
+import { acpManager } from "./acpManager";
 import dbRoutes from "./backend_routes";
 import db from "./db";
 import { startEngine } from "./tradingEngine";
@@ -24,101 +24,16 @@ async function startServer() {
 
 		try {
 			if (provider === "gemini") {
-				// Use user-provided key, or fallback to google_api env var
-				const genAiKey = apiKey || process.env.google_api;
-				if (!genAiKey) {
-					return res.status(400).json({
-						error:
-							"Missing Gemini API Key. Provide one or set google_api in .env",
+				try {
+					const text = await acpManager.prompt("Hello");
+					// Wrap in OpenAI format to not break the frontend
+					res.json({
+						choices: [{ message: { content: text } }],
 					});
+				} catch (e: any) {
+					console.error("ACP prompt error:", e);
+					res.status(500).json({ error: `Gemini ACP error: ${e.message}` });
 				}
-
-				const genAI = new GoogleGenerativeAI(genAiKey);
-				const aiModel = genAI.getGenerativeModel({
-					model: model || "gemma-3-12b",
-				});
-				const result = await aiModel.generateContent("Hello! Are you there?");
-				const _text = result.response.text();
-				res.json({
-					success: true,
-					message: "Connected to Google AI Studio successfully!",
-				});
-			} else {
-				// Custom provider testing
-				if (!apiUrl) {
-					return res.status(400).json({ error: "Missing custom API URL" });
-				}
-				const targetUrl = apiUrl.replace(/\/v1\/?$/, "");
-				const response = await fetch(`${targetUrl}/v1/models`, {
-					headers: { Authorization: `Bearer ${apiKey || "no-key"}` },
-				});
-
-				if (!response.ok) {
-					throw new Error(
-						`Failed to fetch from custom URL: ${response.statusText}`,
-					);
-				}
-				res.json({
-					success: true,
-					message: "Connected to Custom API successfully!",
-				});
-			}
-		} catch (error: any) {
-			console.error("Test Connection Error:", error);
-			res.status(500).json({ error: error.message || "Failed to connect" });
-		}
-	});
-
-	// API route for Model Auto-Fetch
-	app.post("/api/fetch-models", async (req, res) => {
-		const { apiUrl, apiKey } = req.body;
-		if (!apiUrl) return res.status(400).json({ error: "apiUrl is required" });
-		try {
-			const response = await fetch(`${apiUrl}/models`, {
-				headers: { Authorization: `Bearer ${apiKey || "no-key"}` },
-			});
-			if (!response.ok)
-				throw new Error(`Failed to fetch: ${response.statusText}`);
-			const data = await response.json();
-			res.json(data);
-		} catch (_error) {
-			res.status(500).json({ error: "Failed to fetch models from endpoint" });
-		}
-	});
-
-	// API route for AI proxy
-	app.post("/api/ai-proxy", async (req, res) => {
-		const { prompt, provider, apiUrl, model } = req.body;
-
-		try {
-			if (provider === "gemini") {
-				db.get(
-					"SELECT * FROM settings WHERE id = 'default'",
-					async (err, settings: any) => {
-						if (err) return res.status(500).json({ error: "DB Error" });
-
-						const apiKey = settings?.apiKey || process.env.google_api;
-						const targetModel =
-							settings?.customApiModel || model || "gemma-3-12b";
-
-						if (!apiKey)
-							return res.status(400).json({ error: "Gemini API Key missing" });
-
-						try {
-							const genAI = new GoogleGenerativeAI(apiKey);
-							const aiModel = genAI.getGenerativeModel({ model: targetModel });
-							const result = await aiModel.generateContent(prompt);
-							const text = result.response.text();
-
-							// Wrap in OpenAI format to not break the frontend
-							res.json({
-								choices: [{ message: { content: text } }],
-							});
-						} catch (e: any) {
-							res.status(500).json({ error: `Gemini error: ${e.message}` });
-						}
-					},
-				);
 			} else {
 				// Choose endpoint/model based on provider (custom)
 				const targetUrl = apiUrl ? apiUrl : process.env.AI_API_BASE;

@@ -1,54 +1,54 @@
 {
-  "entities": {
-    "User": {
-      "title": "User",
-      "description": "User profile and settings",
-      "type": "object",
-      "properties": {
-        "uid": { "type": "string" },
-        "email": { "type": "string" },
-        "displayName": { "type": "string" }
-      },
-      "required": ["uid", "email"]
-    },
-    "Portfolio": {
-      "title": "Portfolio",
-      "description": "User's current holdings and cash balance",
-      "type": "object",
-      "properties": {
-        "userId": { "type": "string" },
-        "balance": { "type": "number" },
-        "stocks": { "type": "object" }
-      },
-      "required": ["userId", "balance"]
-    },
-    "Position": {
-      "title": "Position",
-      "description": "Active trade position",
-      "type": "object",
-      "properties": {
-        "userId": { "type": "string" },
-        "symbol": { "type": "string" },
-        "shares": { "type": "number" },
-        "entryPrice": { "type": "number" },
-        "stopLoss": { "type": "number" },
-        "takeProfit": { "type": "number" }
-      },
-      "required": ["userId", "symbol", "shares", "entryPrice"]
-    }
-  },
-  "firestore": {
-    "/users/{userId}": {
-      "schema": "User",
-      "description": "User profile data"
-    },
-    "/portfolios/{userId}": {
-      "schema": "Portfolio",
-      "description": "User's portfolio"
-    },
-    "/portfolios/{userId}/positions/{positionId}": {
-      "schema": "Position",
-      "description": "Active positions"
-    }
-  }
+	"entities": {
+		"User": {
+			"title": "User",
+			"description": "User profile and settings",
+			"type": "object",
+			"properties": {
+				"uid": { "type": "string" },
+				"email": { "type": "string" },
+				"displayName": { "type": "string" }
+			},
+			"required": ["uid", "email"]
+		},
+		"Portfolio": {
+			"title": "Portfolio",
+			"description": "User's current holdings and cash balance",
+			"type": "object",
+			"properties": {
+				"userId": { "type": "string" },
+				"balance": { "type": "number" },
+				"stocks": { "type": "object" }
+			},
+			"required": ["userId", "balance"]
+		},
+		"Position": {
+			"title": "Position",
+			"description": "Active trade position",
+			"type": "object",
+			"properties": {
+				"userId": { "type": "string" },
+				"symbol": { "type": "string" },
+				"shares": { "type": "number" },
+				"entryPrice": { "type": "number" },
+				"stopLoss": { "type": "number" },
+				"takeProfit": { "type": "number" }
+			},
+			"required": ["userId", "symbol", "shares", "entryPrice"]
+		}
+	},
+	"firestore": {
+		"/users/{userId}": {
+			"schema": "User",
+			"description": "User profile data"
+		},
+		"/portfolios/{userId}": {
+			"schema": "Portfolio",
+			"description": "User's portfolio"
+		},
+		"/portfolios/{userId}/positions/{positionId}": {
+			"schema": "Position",
+			"description": "Active positions"
+		}
+	}
 }

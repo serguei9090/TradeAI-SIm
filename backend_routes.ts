@@ -1,5 +1,5 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import express from "express";
+import { acpManager } from "./acpManager";
 import db from "./db";
 import { getEngineRunning, setEngineRunning } from "./tradingEngine";
 
@@ -211,15 +211,13 @@ router.post("/ai-chat", async (req, res) => {
 			settings.customApiModel || process.env.AI_MODEL || "local-model";
 
 		if (provider === "gemini") {
-			const apiKey = settings.apiKey || process.env.google_api;
-			if (!apiKey)
-				return res.status(400).json({ error: "Gemini API Key missing" });
-
-			const genAI = new GoogleGenerativeAI(apiKey);
-			const aiModel = genAI.getGenerativeModel({ model: targetModel });
-			const result = await aiModel.generateContent(message);
-			const reply = result.response.text();
-			res.json({ reply });
+			try {
+				const reply = await acpManager.prompt(message);
+				res.json({ reply });
+			} catch (e: any) {
+				console.error("ACP Chat error:", e);
+				res.status(500).json({ error: `Gemini ACP error: ${e.message}` });
+			}
 		} else {
 			const targetUrl =
 				settings.customApiUrl ||
