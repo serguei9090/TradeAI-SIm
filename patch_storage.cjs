@@ -1,5 +1,5 @@
-const fs = require('fs');
-let code = fs.readFileSync('src/services/storage.ts', 'utf-8');
+const fs = require("fs");
+let code = fs.readFileSync("src/services/storage.ts", "utf-8");
 const replacement = `export const updateSettings = async (settings: any): Promise<any> => {
   const res = await fetch('/api/db/settings', {
     method: 'POST',
@@ -19,7 +19,8 @@ export const addFunds = async (amount: number): Promise<any> => {
 };
 
 export const getAiLogs = async (): Promise<any[]> => {`;
-code = code.replace(`export const updateSettings = async (settings: any): Promise<any> => {
+code = code.replace(
+	`export const updateSettings = async (settings: any): Promise<any> => {
   const res = await fetch('/api/db/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -28,5 +29,7 @@ code = code.replace(`export const updateSettings = async (settings: any): Promis
   return res.json();
 };
 
-export const getAiLogs = async (): Promise<any[]> => {`, replacement);
-fs.writeFileSync('src/services/storage.ts', code);
+export const getAiLogs = async (): Promise<any[]> => {`,
+	replacement,
+);
+fs.writeFileSync("src/services/storage.ts", code);
